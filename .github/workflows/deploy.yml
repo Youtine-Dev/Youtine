@@ -50,7 +50,7 @@ jobs:
       && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # workflow_run 이벤트의 기본 checkout 은 기본 브랜치 최신 커밋이다 —
           # CI 를 통과한 바로 그 커밋을 빌드하도록 head_sha 로 고정한다.
