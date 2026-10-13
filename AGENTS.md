@@ -18,14 +18,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## 프로젝트
 
-- **이름**: al-front (Animal League 프론트엔드)
+- **이름**: youtine (유틴 — 스킨케어 루틴 앱)
 - **스택**: Next.js 16 App Router, React 19, TypeScript 5.9, **CSS Modules** (Tailwind 미사용)
 - **Node**: 24 LTS 권장 (`engines`는 Next 최소값인 `>=20.9.0`). **Node 20은 2026-04-30 EOL**
 - **로컬 경로**: `C:\Work\AL-front` — **프론트와 백엔드를 여기서 함께 만든다.**
   백엔드는 별도 서버가 아니라 **Next.js Route Handler**(`src/app/api/**`)이고,
   DB는 **새로 구축하는 MariaDB**다(`docs/plans/2026-08-18-server-storage/`).
   ⚠️ ~~`C:\Work\animal-league-04-back`(Spring)~~ 은 **이 프로젝트와 무관하다.** 참조하지 말 것.
-- **원격**: `github.com/lldau-animal-leaegue-hackathon/AL-front`
+- **원격**: `github.com/Youtine-Dev/Youtine`
 - **도메인**(2026-08-18 확정 — `presentation/SERVICE.md`·`docs/plans/2026-08-18-skincare-core/` 기준):
   **스킨케어 루틴 앱.** 제품 등록(성분표 사진 → AI 성분 추출) · AI 루틴 생성(피부 고민 + 가용 시간 +
   보유 제품) · 루틴 수행(단계별 안내·타이머) · 수행 기록.
@@ -178,7 +178,7 @@ App Router에서 가장 사고가 잦은 지점이다.
 
 ### ⛔ 이 레포는 퍼블릭 기준으로 다룬다 (사용자 지시, 2026-08-18)
 
-`github.com/lldau-animal-leaegue-hackathon/AL-front` 는 공개 저장소로 시작했고,
+`github.com/Youtine-Dev/Youtine` 는 공개 저장소로 시작했고,
 **2026-08-20 실측으로는 비공개다**(API 404). 언제 다시 공개될지 모르고 한 번 커밋하면
 히스토리에 남아 지우기 어렵다 — **규칙은 퍼블릭 기준 그대로 유지한다.**
 

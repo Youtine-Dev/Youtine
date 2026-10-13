@@ -1,4 +1,4 @@
-// al-front 적대적 코드리뷰 워크플로 템플릿.
+// youtine 적대적 코드리뷰 워크플로 템플릿.
 // Workflow 도구로 실행. FINDERS(도메인)·KNOWN_INTENTIONAL(사전 제외)·기준 브랜치만 갱신해 쓴다.
 //
 // ★ 모델 핀: 파인더·검증 에이전트는 전원 REVIEW_MODEL='fable'로 고정 →
@@ -11,7 +11,7 @@
 export const meta = {
   name: "adversarial-code-review",
   description:
-    "al-front 광역 코드리뷰 — 파인더 fan-out → dedup → 발견별 반박 검증 (리뷰 에이전트 Fable 5 핀)",
+    "youtine 광역 코드리뷰 — 파인더 fan-out → dedup → 발견별 반박 검증 (리뷰 에이전트 Fable 5 핀)",
   phases: [
     { title: "Find", detail: "도메인×렌즈 파인더 병렬 (Fable 5)" },
     { title: "Verify", detail: "발견별 반박 검증 (Fable 5)" },
@@ -127,7 +127,7 @@ const FINDERS = [
 
 const finderPrompt = (
   f,
-) => `너는 al-front(Next.js 16 App Router / React 19 / TypeScript, c:/Work/AL-front)의 적대적 코드리뷰 파인더다.
+) => `너는 youtine(Next.js 16 App Router / React 19 / TypeScript, c:/Work/AL-front)의 적대적 코드리뷰 파인더다.
 담당 범위: ${f.scope}
 이 범위의 파일을 **전량 정독**하고, \`git diff ${BASE}...HEAD -- <path>\`와 \`git show ${BASE}:<path>\`로 원본 대비 회귀도 추적하라.
 

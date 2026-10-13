@@ -1,4 +1,4 @@
-# AL-front(youtine) 서버 스택 — 앱 + DB. main 의 CI 가 성공하면 GitHub Actions 가
+# youtine 서버 스택 — 앱 + DB. main 의 CI 가 성공하면 GitHub Actions 가
 # **Actions 러너에서** 이미지를 빌드해 Docker Hub 로 push 하고, 서버는 forced-command
 # SSH 로 그 이미지를 pull 해 재기동만 한다(.github/workflows/deploy.yml, 2026-08-20 전환).
 #
