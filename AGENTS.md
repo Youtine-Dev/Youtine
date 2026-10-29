@@ -1,6 +1,6 @@
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 
@@ -86,6 +86,20 @@ npm run format       # Prettier 자동 정렬
 
 > 새 공용 자산을 만들기 전에 `src/lib/`·`src/components/`를 먼저 grep한다. 재구현 금지.
 > 공용 자산이 늘어나면 이 문서에 "공용 자산 빠른 참조" 표를 추가해 유지한다.
+
+#### 공용 자산 빠른 참조 (재구현 금지 — 쓰지 않으면 같은 사고가 재발한다)
+
+| 자산                                      | 위치                                | 언제 쓰나                                                                                  |
+| ----------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `readJsonObject(request)`                 | `src/lib/db/input.ts`               | Route Handler 본문 파싱. `(await request.json()) as Body` 금지 — `null` 본문이 500 이 된다 |
+| `text`·`textArray`·`intInRange`·`isoDate` | `src/lib/db/input.ts`               | 입력 좁히기 + 상한. 조용히 자르지 말고 `null` → 400                                        |
+| `acquireOrBusy(userId)` / `release`       | `src/lib/ai/guard.ts`               | 모든 `/api/ai/*` — 사용자당 1건 + 전역 상한. 캐시·DB 경로는 이것보다 **먼저**              |
+| `runClaude(prompt, { signal })`           | `src/lib/claude/runner.ts`          | 헤드리스 Claude. `signal: request.signal` 을 반드시 넘긴다(이탈 시 자식 종료)              |
+| `useBodyScrollLock()`                     | `src/lib/useBodyScrollLock.ts`      | 모달 배경 스크롤 잠금(참조 카운트 — 중첩·일괄 언마운트 안전)                               |
+| `useModalFocus(ref, initialRef?)`         | `src/lib/useModalFocus.ts`          | 모달 초기 포커스·Tab 트랩·트리거 복귀(중첩이면 최상단만)                                   |
+| `NO_INGREDIENTS_WARNING`·`realWarnings`   | `src/lib/warnings.ts`               | 주의사항 표시·집계. 고정 문구는 경고로 세지 않는다(클라이언트 import 가능)                 |
+| `sameIngredient`·`ingredientAliases`      | `src/lib/ingredientNames.ts`        | 성분명 매칭. 부분 문자열 비교를 새로 쓰지 말 것(다른 성분의 안전 정보가 붙는다)            |
+| `looksLikeIngredients`                    | `src/lib/ingredients/brandSites.ts` | "전성분처럼 보이는가" 관문 — 부분 목록을 완전한 목록으로 저장하지 않기 위해                |
 
 ### 서버 컴포넌트 / 클라이언트 컴포넌트 경계
 
