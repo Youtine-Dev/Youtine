@@ -9,7 +9,7 @@ import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
 import { useProducts, useRoutines } from "@/lib/data";
 import { stepIcon } from "@/lib/stepIcon";
-import { markRunStart } from "@/lib/storage/history";
+import { markRunStep, setStepSkipped } from "@/lib/storage/history";
 import type { Product } from "@/types/skincare";
 
 import { HowToList } from "./HowToList";
@@ -68,6 +68,17 @@ export function RoutineRunner({
 
   const routine = routines.find((item) => item.id === routineId);
   const index = Number(step) - 1;
+  const valid =
+    routine !== undefined &&
+    Number.isInteger(index) &&
+    index >= 0 &&
+    index < routine.steps.length;
+
+  /*
+   * 로드에 실패한 사진 src 를 기억해 아이콘으로 폴백한다(m34, ProductCard 와 같은 방식).
+   * src 자체를 기억하므로 다른 단계의 사진으로 바뀌면 자동으로 다시 시도한다.
+   */
+  const [brokenPhoto, setBrokenPhoto] = useState<string | null>(null);
 
   /*
    * 히어로(사진 영역)가 화면에서 사라졌을 때만 하단 고정 액션바를 띄운다
@@ -90,13 +101,13 @@ export function RoutineRunner({
   }, [ready, index, routineId]);
 
   /*
-   * 첫 단계에 들어설 때 수행 시작 시각을 찍는다. 완료 화면은 별도 라우트라
-   * 메모리로 넘길 수 없다. 훅은 early return 앞에서 무조건 호출해야 하므로
-   * 조건은 본문 안에 둔다.
+   * 첫 단계에서 수행 시작 시각을 찍고, 이후 단계마다 위치를 남긴다 — 완료 화면·홈
+   * '이어서 하기'는 별도 라우트라 메모리로 넘길 수 없다. 훅은 early return 앞에서
+   * 무조건 호출해야 하므로 조건은 본문 안에 둔다.
    */
   useEffect(() => {
-    if (ready && routine && index === 0) markRunStart(routineId);
-  }, [ready, routine, index, routineId]);
+    if (ready && valid) markRunStep(routineId, index + 1);
+  }, [ready, valid, index, routineId]);
 
   // 아직 서버 응답 전이다. 여기서 "없음"으로 단정하면
   // 정상 루틴인데도 "찾을 수 없어요"가 한 번 깜빡였다가 사라진다.
@@ -107,12 +118,6 @@ export function RoutineRunner({
     return (
       <DataState error onRetry={retry} label="루틴" message={errorMessage} />
     );
-
-  const valid =
-    routine !== undefined &&
-    Number.isInteger(index) &&
-    index >= 0 &&
-    index < routine.steps.length;
 
   if (!routine || !valid) {
     return (
@@ -136,7 +141,11 @@ export function RoutineRunner({
   const nextHref = next
     ? (`/routine/${routineId}/${index + 2}` as Route)
     : (`/routine/${routineId}/done` as Route);
-  const photo = findStepPhoto(current.usingProduct, products.value);
+  const matched = findStepPhoto(current.usingProduct, products.value);
+  const photo = matched !== brokenPhoto ? matched : null;
+  /** '다음'은 이 단계를 한 것으로, '건너뛰기'는 안 한 것으로 남긴다(I10). */
+  const markStep = (skipped: boolean) => () =>
+    setStepSkipped(routineId, current.id, skipped);
 
   return (
     <>
@@ -160,6 +169,7 @@ export function RoutineRunner({
                 fill
                 unoptimized
                 className={styles.photoImg}
+                onError={() => setBrokenPhoto(photo)}
               />
             ) : (
               <Icon
@@ -215,7 +225,11 @@ export function RoutineRunner({
                   <Icon name="arrow_back" />
                 </Link>
               )}
-              <Link href={nextHref} className={styles.heroNext}>
+              <Link
+                href={nextHref}
+                className={styles.heroNext}
+                onClick={markStep(false)}
+              >
                 <span>
                   {next ? `다음: ${next.routineName}` : "루틴 마치기"}
                 </span>
@@ -267,6 +281,8 @@ export function RoutineRunner({
           prevHref={
             index > 0 ? (`/routine/${routineId}/${index}` as Route) : undefined
           }
+          onNext={markStep(false)}
+          onSkip={markStep(true)}
         />
       )}
     </>

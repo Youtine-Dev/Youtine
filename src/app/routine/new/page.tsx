@@ -28,7 +28,7 @@ export default async function NewRoutinePage({
     <>
       <PageHeader title={focus === "1" ? "기타 루틴 만들기" : "루틴 만들기"} />
 
-      <main className={styles.main}>
+      <main id="main" className={styles.main}>
         <RoutineForm focus={focus === "1"} />
       </main>
     </>

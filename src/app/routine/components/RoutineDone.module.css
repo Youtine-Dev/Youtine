@@ -59,6 +59,23 @@
   font-weight: 600;
 }
 
+/* 시작 표시 없이 끝난 수행(m24③) — 오류가 아니라 안내라 중립 표면을 쓴다. */
+.notice {
+  background: var(--surface-container);
+  color: var(--on-surface);
+}
+
+.noticeAction {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: var(--text-body-md);
+  font-weight: 600;
+}
+
 .steps {
   display: flex;
   flex-direction: column;
@@ -84,6 +101,21 @@
 
 .stepCheck {
   color: var(--primary);
+}
+
+/* 건너뛴 단계(I10) — 체크 대신 대시, 글자는 한 단계 흐리게(대비는 유지). */
+.stepSkipped {
+  color: var(--on-surface-variant);
+}
+
+.stepSkipped .stepCheck {
+  color: var(--on-surface-variant);
+}
+
+.skipTag {
+  margin-left: auto;
+  font: var(--text-label-sm);
+  letter-spacing: var(--tracking-label-sm);
 }
 
 .actions {

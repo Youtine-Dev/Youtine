@@ -5,9 +5,11 @@ import { useCallback, useState } from "react";
 import {
   extractIngredients,
   searchProductCandidates,
+  type IngredientsResponse,
   type ProductCandidate,
 } from "@/api/ai";
 import { ApiError } from "@/api/client";
+import type { IngredientSource } from "@/api/products";
 import { addProduct, useProducts } from "@/lib/data";
 import { fileToLabelDataUrl, resizeToThumbnail } from "@/lib/imageResize";
 import type { Product } from "@/types/skincare";
@@ -40,8 +42,11 @@ export type SearchResult = {
   /** 저장용 256px 썸네일. 사진을 올렸을 때만 있다(Q7). */
   thumbnail?: string;
   productCompany?: string;
-  /** 화면이 성분 출처를 표시해야 하므로 저장까지 들고 간다. */
-  ingredientSource: "photo" | "manual";
+  /**
+   * 화면이 성분 출처를 표시해야 하므로 저장까지 들고 간다.
+   * 서버가 이 등급으로 공유 카탈로그 덮어쓰기를 판정한다(Q3 — 낮은 등급은 기존 값을 못 덮는다).
+   */
+  ingredientSource: IngredientSource;
   /** 후보 검색에서 얻은 용량. 저장하지 않고 확인 화면에만 쓴다(DB 컬럼이 없다). */
   volume?: string;
   /**
@@ -91,6 +96,11 @@ export function useProductRegister() {
    * 후보를 고르는 것은 검색이 끝난 뒤라, 그때 다시 폼에서 가져올 수 없다.
    */
   const [productFile, setProductFile] = useState<File | null>(null);
+  /**
+   * 성분 추출 시작 시각(ms). 모달이 아니라 **여기** 둔다(m28) — 다른 탭에 갔다 오면
+   * 모달은 다시 마운트되는데, 시각을 모달이 들고 있으면 경과 초가 0부터 다시 센다.
+   */
+  const [extractStartedAt, setExtractStartedAt] = useState(0);
   // 저장 시 addProduct 가 캐시를 mutate 하므로 여기서는 개수만 읽는다.
   const products = useProducts();
 
@@ -106,6 +116,7 @@ export function useProductRegister() {
       labelFile: File | null;
     }) => {
       setPhase("extracting");
+      setExtractStartedAt(Date.now());
       setError(null);
 
       try {
@@ -135,9 +146,19 @@ export function useProductRegister() {
           category: raw.category,
           ingredients: raw.ingredients,
           thumbnail,
-          productCompany: input.productCompany || undefined,
+          /*
+           * 회사를 비운 채 카탈로그에 걸리면 저장된 브랜드를 쓴다 — 안 쓰면 POST 가
+           * (이름, '') 로 같은 제품의 중복 행을 만든다.
+           */
+          productCompany:
+            input.productCompany ||
+            (raw.source === "catalog" && raw.brand) ||
+            undefined,
           // 성분을 어디서 얻었는지다. 제품 사진은 성분 근거가 아니므로 판단에 넣지 않는다.
-          ingredientSource: input.labelFile ? "photo" : "manual",
+          ingredientSource: toIngredientSource(
+            raw.source,
+            Boolean(input.labelFile),
+          ),
           volume: input.volume,
           imageUrl: input.imageUrl,
         });
@@ -300,6 +321,7 @@ export function useProductRegister() {
     candidates,
     found,
     saved,
+    extractStartedAt,
     shelfCount: products.value.length,
     search,
     selectCandidate,
@@ -309,6 +331,29 @@ export function useProductRegister() {
     dismiss,
     reset,
   };
+}
+
+/**
+ * `/api/ai/ingredients` 의 `source`(어디서 성분을 얻었나) → 저장 출처 등급(Q3).
+ * 카탈로그 히트는 가장 낮은 `manual` 로 보낸다 — 이미 저장된 목록을 되돌려 보낼 뿐이라
+ * 서버 등급 규칙이 기존 출처를 지킨다. 서버가 아직 `source` 를 안 주거나 모르는 값이면 예전 판정.
+ */
+function toIngredientSource(
+  source: IngredientsResponse["source"],
+  hasLabelFile: boolean,
+): IngredientSource {
+  switch (source) {
+    case "photo":
+      return "photo";
+    case "brand":
+      return "hwahae";
+    case "web":
+      return "fallback";
+    case "catalog":
+      return "manual";
+    default:
+      return hasLabelFile ? "photo" : "manual";
+  }
 }
 
 /**

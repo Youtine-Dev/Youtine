@@ -11,6 +11,7 @@ import { stepIcon } from "@/lib/stepIcon";
 import type { Routine, RoutineStep } from "@/types/skincare";
 
 import { conditionLabel } from "../condition";
+import { routineSummary } from "../hooks/useRoutineGenerate";
 import { TIME_ICON, TIME_LABEL, totalMinutes } from "../routineTime";
 import styles from "./RoutineCard.module.css";
 
@@ -34,13 +35,21 @@ function saveErrorText(error: unknown): string {
  *
  * 단계 편집(순서 변경·삭제)도 여기서 한다 — 단계 하나 빼자고 AI 재생성(90초)을
  * 돌릴 이유가 없다(사용자 피드백). 저장은 초안을 모아 한 번에 PUT 한다.
+ *
+ * @param editLocked 다른 카드가 편집 중이다 — 편집 진입을 막는다(m7). 저장이 같은 조건의
+ *   형제를 함께 보내므로, 두 카드를 동시에 편집하면 먼저 저장한 쪽이 뒤의 초안 기준을 바꾼다.
+ * @param onEditingChange 편집 진입·종료를 목록(RoutineList)에 알린다.
  */
 export function RoutineCard({
   routine,
   done,
+  editLocked,
+  onEditingChange,
 }: {
   routine: Routine;
   done: boolean;
+  editLocked: boolean;
+  onEditingChange: (editing: boolean) => void;
 }) {
   const [marking, setMarking] = useState(false);
   /** 완료 기록의 시각. 재시도가 같은 값을 재사용해 서버 멱등 키에 수렴한다(m1). */
@@ -74,7 +83,6 @@ export function RoutineCard({
        * 실패 후 재시도할 때 **같은 시각을 다시 쓴다**(m1). 서버의 멱등 키가
        * `(user, routine, started_at)` 이라, 재시도마다 `new Date()` 를 새로 만들면
        * 커밋됐는데 응답만 유실된 경우 같은 수행이 2행이 되어 달성률이 부풀려진다.
-       * 성공하면 버튼이 사라지므로 여기서 비울 필요는 없다.
        */
       markedAtRef.current ??= new Date().toISOString();
       const now = markedAtRef.current;
@@ -84,7 +92,12 @@ export function RoutineCard({
         finishedAt: now,
         completedStepIds: routine.steps.map((step) => step.id),
       });
-      // 성공하면 runs 캐시 갱신으로 done prop 이 바뀌어 버튼이 사라진다.
+      /*
+       * 성공하면 반드시 비운다(M12). 탭을 연 채 자정이 지나면 버튼이 다시 보이는데,
+       * 남겨 두면 **어제 시각**으로 POST → 멱등 키가 어제 행으로 수렴해 오늘 기록이 안 남는다.
+       */
+      markedAtRef.current = null;
+      // runs 캐시 갱신으로 done prop 이 바뀌어 버튼이 사라진다.
     } catch {
       setMarkError(true);
     } finally {
@@ -135,19 +148,20 @@ export function RoutineCard({
     setSaving(true);
     setSaveError(null);
     try {
-      // 같은 조건의 루틴을 **전부** 보낸다. 편집한 것만 단계가 바뀐다.
+      /*
+       * 같은 조건의 루틴을 **전부** 보낸다. 편집한 것만 단계·요약이 바뀐다.
+       * id 를 함께 보내 서버가 유지하게 한다(I9) — 재발급되면 편집 안 한 짝까지
+       * 오늘 완료·이번 주 달성률·기록 이름이 끊겼다(m7).
+       */
       await saveRoutines(
-        siblings.map((item) => ({
-          name: item.name,
-          condition: item.condition,
-          time: item.time,
-          summary: item.summary,
-          steps: item.id === routine.id ? draft : item.steps,
-        })),
+        siblings.map((item) =>
+          item.id === routine.id
+            ? { ...item, summary: routineSummary(draft), steps: draft }
+            : item,
+        ),
       );
-      // 저장에 성공하면 서버가 새 id 를 발급하므로 이 카드는 통째로 다시 마운트된다
-      // (RoutineList 의 key = routine.id). 초안 정리는 그 전에 끝내 둔다.
       setDraft(null);
+      onEditingChange(false);
     } catch (error) {
       // 실패하면 초안을 유지한다 — 여기서 비우면 편집 내용이 조용히 사라진다.
       setSaveError(saveErrorText(error));
@@ -265,6 +279,7 @@ export function RoutineCard({
                 onClick={() => {
                   setDraft(null);
                   setSaveError(null);
+                  onEditingChange(false);
                 }}
                 disabled={saving}
               >
@@ -272,11 +287,12 @@ export function RoutineCard({
               </button>
             </div>
             {/*
-              저장은 조건 단위 교체라 루틴 id 가 새로 발급된다 → 그 주 달성률·오늘 완료
-              표시가 "다시 만들기" 때와 똑같이 초기화된다. 미리 알려 준다.
+              서버가 루틴 id 를 유지하므로(I9) 기록은 이어진다 — 예전 "초기화" 안내는 이제 틀리다.
+              달라지는 건 분모뿐이다: 예정 단계 수가 현재 단계 기준이다(achievement.ts).
             */}
             <p className={styles.editHint}>
-              저장하면 이 루틴의 완료 기록 표시가 초기화돼요.
+              저장해도 오늘 완료와 수행 기록은 그대로예요. 이번 주 달성률은 바뀐
+              단계 수 기준으로 다시 계산돼요.
             </p>
           </>
         ) : (
@@ -306,10 +322,16 @@ export function RoutineCard({
             <button
               type="button"
               className={styles.markDone}
-              aria-label={`${routine.name} 단계 편집`}
+              aria-label={
+                editLocked
+                  ? `${routine.name} 단계 편집 — 다른 루틴 편집을 먼저 끝내 주세요`
+                  : `${routine.name} 단계 편집`
+              }
+              disabled={editLocked}
               onClick={() => {
                 setSaveError(null);
                 setDraft(routine.steps);
+                onEditingChange(true);
               }}
             >
               <Icon name="edit" size="sm" />

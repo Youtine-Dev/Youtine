@@ -14,7 +14,13 @@ import {
   execute,
   selectRows,
 } from "@/lib/db/pool";
-import { isoDate, LIMITS, text, textArray } from "@/lib/db/input";
+import {
+  isoDate,
+  LIMITS,
+  readJsonObject,
+  text,
+  textArray,
+} from "@/lib/db/input";
 import { toRoutineRun } from "@/lib/db/rows";
 
 export const runtime = "nodejs";
@@ -33,16 +39,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  let body: {
-    routineId?: unknown;
-    startedAt?: unknown;
-    finishedAt?: unknown;
-    completedStepIds?: unknown;
-  };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return Response.json({ message: "JSON 본문이 아닙니다." }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return Response.json(
+      { message: "JSON 객체 본문이 아닙니다." },
+      { status: 400 },
+    );
   }
 
   // 컬럼이 CHAR(36)(UUID)라 넘치면 DB 에러 → 503. migrate 라우트와 같은 상한으로 400 처리.
@@ -60,6 +62,18 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  if (startedAt > finishedAt) {
+    return Response.json(
+      { message: "startedAt 이 finishedAt 보다 늦을 수 없습니다." },
+      { status: 400 },
+    );
+  }
+  /*
+   * 컬럼이 DATETIME(초 정밀도)이라 ms 는 저장되지 않는다. ms 붙은 값으로 기존 행을
+   * 찾으면 `started_at = ?` 가 영영 안 맞아 **201 + DB 에 없는 id** 를 돌려줬다(m5).
+   * 저장·조회 모두 초 단위로 잘라 같은 값을 쓴다.
+   */
+  startedAt.setUTCMilliseconds(0);
 
   const completedStepIds = textArray(body.completedStepIds ?? [], {
     maxItems: LIMITS.completedStepIds,
@@ -115,6 +129,8 @@ export async function POST(request: Request) {
       );
       const existing = rows.map(toRoutineRun).find((run) => run !== null);
       if (existing) return Response.json(existing, { status: 200 });
+      // 넣지도 찾지도 못했다 — 없는 id 로 성공을 꾸미지 않는다(클라이언트는 재시도한다).
+      throw new Error("멱등 폴백: 기존 수행 행을 찾지 못함");
     }
 
     return Response.json(

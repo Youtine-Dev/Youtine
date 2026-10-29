@@ -65,7 +65,7 @@
   color: var(--on-secondary-container);
 }
 
-/* 진행 중이어도 실제 몇 단계째인지 저장하지 않아(NextStepCard.tsx 주석 참고)
+/* 연 단계가 곧 진행률은 아니라(건너뛰기·앞뒤 이동 — NextStepCard.tsx 주석 참고)
    숫자 진행률바 대신 CTA 하나로 단순화했다. RoutineCard.module.css 의 .start 와
    같은 모양(터치 타깃 44px, primary/on-primary 짝) — 공용 버튼 모듈은 없어 복제한다. */
 .cta {

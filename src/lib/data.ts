@@ -30,6 +30,7 @@ import {
   fetchProducts,
   fetchProductsByIngredient,
   removeProduct as removeProductRequest,
+  searchCatalogProducts,
   type IngredientSource,
 } from "@/api/products";
 import {
@@ -162,6 +163,24 @@ export const useProducts = () =>
  */
 export const usePopularProducts = () =>
   useResource(KEYS.popular, fetchPopularProducts, NO_PRODUCTS);
+
+/**
+ * 카탈로그 전체 검색(m26). `query` 가 비면 호출하지 않는다. 디바운스는 화면이 한다.
+ * 키에 검색어가 붙어 같은 검색어로 돌아오면 캐시가 즉시 답한다.
+ */
+export const useCatalogSearch = (query: string | null) =>
+  useResource(
+    query ? `${KEYS.popular}?q=${encodeURIComponent(query)}` : null,
+    () => searchCatalogProducts({ query: query ?? "" }),
+    NO_PRODUCTS,
+  );
+
+/**
+ * 인기 목록 + 검색 결과 키 전부. 담기·빼기 뒤 같이 무효화한다 — 검색 키를 빠뜨리면
+ * 방금 담은 제품이 같은 검색어에서 계속 "결과 없음"이다(m26).
+ */
+const isCatalogKey = (key: unknown) =>
+  typeof key === "string" && key.startsWith(KEYS.popular);
 
 const NO_CONCERN_INGREDIENTS: ConcernIngredient[] = [];
 
@@ -302,7 +321,7 @@ export async function addProduct(input: {
   // 리포트 무효화는 따로 안 한다 — useShelfReport 의 키에 선반 서명이 들어 있어
   // products 갱신이 곧 키 교체다.
   // 인기 카탈로그는 담긴 수(shelf_count) 순이라 담기가 곧 순위 변경이다 — 같이 무효화한다(m10).
-  await Promise.all([mutate(KEYS.products), mutate(KEYS.popular)]);
+  await Promise.all([mutate(KEYS.products), mutate(isCatalogKey)]);
   return created;
 }
 
@@ -312,7 +331,7 @@ export async function addProduct(input: {
 export async function removeProduct(input: { id: string }): Promise<void> {
   await removeProductRequest(input);
   // 리포트 키는 products 갱신으로 같이 바뀐다(선반 서명). 인기 카탈로그는 빼기도 순위에 반영(m10).
-  await Promise.all([mutate(KEYS.products), mutate(KEYS.popular)]);
+  await Promise.all([mutate(KEYS.products), mutate(isCatalogKey)]);
 }
 
 export async function saveRoutines(routines: RoutineInput[]): Promise<void> {

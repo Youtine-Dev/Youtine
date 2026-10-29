@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { generateRoutine, type RoutineStepResponse } from "@/api/ai";
 import { ApiError } from "@/api/client";
@@ -21,7 +21,8 @@ export type GenerateInput = {
 };
 
 /**
- * 결과 화면용 임시 id. 서버가 저장 시점에 진짜 id 를 만들고 이 값은 무시한다.
+ * 결과 화면용 임시 id. 서버는 이미 가진 루틴의 id 만 유지하므로(`PUT /api/routines`)
+ * 이 값은 저장 시점에 무시되고 진짜 id 가 새로 만들어진다.
  *
  * ⚠️ `crypto.randomUUID` 는 **보안 컨텍스트(HTTPS·localhost)에서만** 존재한다.
  *    TLS 없이 배포하면 없으므로 폴백이 필요하다 — 여기서 던지면 90초 걸린 생성 결과가
@@ -56,6 +57,17 @@ function toStep(raw: RoutineStepResponse): RoutineStep {
 }
 
 /**
+ * 카드 한 줄 설명 — 단계 수·소요 시간에서 **파생**한다(지어낸 문구가 아니다).
+ * 단계 편집 저장(`RoutineCard`)도 같은 규칙으로 다시 만든다 — 안 그러면 헤더와 어긋난다(m7).
+ */
+export function routineSummary(steps: readonly RoutineStep[]): string {
+  const minutes = totalMinutes(steps);
+  return minutes === null
+    ? `${steps.length}단계`
+    : `${steps.length}단계 · 약 ${minutes}분`;
+}
+
+/**
  * 프롬프트는 `{ morning, evening }` **1벌**을 주는데 저장 모델은 time 당 `Routine` 1개다.
  * 그래서 한 번의 응답을 `Routine` 2개로 펼친다.
  *
@@ -75,7 +87,6 @@ function toRoutine(
   concernSummary: string | null,
 ): Routine {
   const steps = raws.map(toStep);
-  const minutes = totalMinutes(steps);
   /*
    * 이름의 성격 접미는 두지 않는다 — "아침 기타 루틴"은 어색하고, 구명칭
    * "집중 케어"는 개명(기타 루틴)과 어긋난다(재검토 N7). 기본/기타 구분은
@@ -88,14 +99,20 @@ function toRoutine(
     name: concernSummary ? `${concernSummary} - ${base}` : base,
     condition,
     time,
-    summary:
-      minutes === null
-        ? `${steps.length}단계`
-        : `${steps.length}단계 · 약 ${minutes}분`,
+    summary: routineSummary(steps),
     steps,
     // createdAt 은 optional 이다. 서버가 저장 시점에 진짜 값을 만들므로 여기서 지어내지 않는다.
   };
 }
+
+/**
+ * AI 가드 응답(`src/lib/ai/guard.ts`)은 어느 작업이 막혔는지 모른다 — 생성 단계에서만 바꿔 말한다.
+ * 저장 단계의 503 은 DB 장애라 이 문구를 쓰면 안 된다.
+ */
+const BUSY_TEXT: Partial<Record<number, string>> = {
+  429: "이전에 시작한 AI 작업(루틴 생성 등)이 아직 끝나지 않았어요. 잠시 후 다시 시도해 주세요.",
+  503: "지금 AI 요청이 많아요. 잠시 후 다시 시도해 주세요.",
+};
 
 /**
  * 루틴 생성 — AI 호출 → 서버 저장 한 흐름.
@@ -112,6 +129,17 @@ export function useRoutineGenerate() {
    * 안 하면 로딩 중에 누른 사용자에게 "제품이 없어요"라고 잘못 안내한다.
    */
   const products = useProducts();
+
+  /*
+   * 생성 중 새로고침·탭 닫기 경고(m23) — 떠나면 서버가 claude 를 죽이므로(m3) 기다린 만큼이
+   * 버려진다. 앱 안 이동은 전면 오버레이(RoutineForm)가 이미 막는다.
+   */
+  useEffect(() => {
+    if (status !== "working") return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [status]);
 
   const generate = useCallback(
     async (input: GenerateInput) => {
@@ -145,6 +173,7 @@ export function useRoutineGenerate() {
       setError(null);
       setSaved([]);
 
+      let saving = false;
       try {
         const raw = await generateRoutine({
           wonder,
@@ -174,6 +203,7 @@ export function useRoutineGenerate() {
 
         // 서버 저장. 90초 기다려 만든 결과가 저장에서 조용히 실패하면 사용자는 저장된 줄
         // 안다 — 프로필·루틴 중 하나라도 실패하면 부분 성공으로 보고하지 않고 catch 로 던진다.
+        saving = true;
         await saveProfile({ wonder, usableTime: input.usableTime });
         await saveRoutines(routines);
 
@@ -184,7 +214,11 @@ export function useRoutineGenerate() {
 
         if (cause instanceof ApiError) {
           const body = cause.body as { message?: string } | null;
-          setError(body?.message ?? `루틴을 만들지 못했어요 (${cause.status})`);
+          setError(
+            (saving ? undefined : BUSY_TEXT[cause.status]) ??
+              body?.message ??
+              `루틴을 만들지 못했어요 (${cause.status})`,
+          );
           return;
         }
         setError(

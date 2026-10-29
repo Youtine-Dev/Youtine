@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Icon } from "@/components/Icon";
-import { NAV_TABS, isImmersive } from "@/components/nav/tabs";
+import { NAV_TABS, isActiveTab, isImmersive } from "@/components/nav/tabs";
 
 import styles from "./BottomNav.module.css";
 
@@ -17,7 +17,7 @@ export function BottomNav() {
   return (
     <nav className={styles.nav} aria-label="주요 메뉴">
       {NAV_TABS.map((tab) => {
-        const active = pathname === tab.href;
+        const active = isActiveTab(pathname, tab.href);
 
         return (
           <Link

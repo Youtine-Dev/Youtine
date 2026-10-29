@@ -46,10 +46,15 @@ export function ConcernSection() {
     setSaving(true);
     setSaveError(null);
     try {
+      // 가용 시간은 루틴 생성에서 정한다. 여기서는 기존 값을 지키고 없으면 기본값을 넣는다.
+      // 필드별로 본다 — 예전 이관(migrate)이 빈 문자열로 저장한 행이 있고, 서버는 빈 값을 400 으로 거부한다.
+      const saved = profile.value?.usableTime;
       await saveProfile({
         wonder: next,
-        // 가용 시간은 루틴 생성에서 정한다. 여기서는 기존 값을 지키고 없으면 기본값을 넣는다.
-        usableTime: profile.value?.usableTime ?? DEFAULT_USABLE_TIME,
+        usableTime: {
+          morning: saved?.morning || DEFAULT_USABLE_TIME.morning,
+          evening: saved?.evening || DEFAULT_USABLE_TIME.evening,
+        },
       });
       setEditing(false);
     } catch (cause: unknown) {
@@ -248,7 +253,8 @@ export function ConcernSection() {
         여기서 나가면 `condition = "고민 집중"` 으로 저장돼 기본 루틴을 덮지 않는다.
       */}
       <section className={styles.card}>
-        <h2 className={styles.heading}>이 고민으로 루틴 만들기</h2>
+        {/* 루틴 탭·생성 화면이 쓰는 이름("기타 루틴")과 맞춘다 — 제목과 버튼이 다른 말을 했다(3라운드 m33). */}
+        <h2 className={styles.heading}>이 고민으로 기타 루틴 만들기</h2>
         <p className={styles.lead}>
           선반에 담은 제품으로 이 고민에 집중한 아침·저녁 루틴을 짜 드려요.
           <br />

@@ -5,13 +5,18 @@
  * 넣지 않고 **한 번 받아 data URL 로 바꿔 저장한다**(사용자 결정 2026-08-19):
  *  - 직접 찍은 사진과 **같은 모양**이 되어 화면 코드가 갈라지지 않는다.
  *  - 화해가 URL 을 바꾸거나 핫링크를 막아도 이미 담은 제품은 깨지지 않는다.
- *  - 실측상 96x96 썸네일이 1KB 안팎이라 용량 부담이 없다.
+ *  - **긴 변 256px JPEG 로 줄여 저장한다**(3라운드 M14). 원본 그대로 넣었더니 720px 222KB 한 장이
+ *    `GET /api/products` 응답의 98% 였다 — 홈·스캔·루틴이 포커스마다 다시 받는 목록이다.
  *
  * ⛔ **SSRF 를 막는 것이 이 파일의 핵심 책임이다.**
  * 여기 들어오는 URL 은 **LLM 이 만들어 클라이언트를 거쳐 온 값**이다. 그대로 fetch 하면
  * 서버가 임의 주소로 요청하게 되고, 클라우드 메타데이터(169.254.169.254)나 사내망처럼
  * 서버만 닿을 수 있는 곳을 긁어 오는 통로가 된다. 호스트를 화이트리스트로 못 박는다.
  */
+
+import sharp from "sharp";
+
+import { execute } from "@/lib/db/pool";
 
 /**
  * 허용 호스트. 실측(2026-08-19)에서 후보 검색이 주는 이미지가 전부 이 호스트였다.
@@ -20,8 +25,12 @@
  */
 const ALLOWED_IMAGE_HOSTS = new Set(["img.hwahae.co.kr"]);
 
-/** 96x96 썸네일은 1KB 안팎이다. 상한은 넉넉히 두되 무한정 받지는 않는다. */
+/** 받을 원본의 상한. 저장은 축소본이라 넉넉히 두되 무한정 받지는 않는다. */
 const MAX_IMAGE_BYTES = 2_000_000;
+
+/** 저장 규격 — 클라이언트 `resizeToThumbnail` 과 같은 긴 변 256px. 카드 썸네일에 충분하다. */
+const THUMBNAIL_SIDE = 256;
+const JPEG_QUALITY = 80;
 
 /** 이미지를 받는 데 오래 매달리지 않는다 — 등록 흐름 한가운데라 사용자가 기다린다. */
 const FETCH_TIMEOUT_MS = 8_000;
@@ -65,14 +74,84 @@ export async function fetchImageAsDataUrl(
       return null;
     }
 
-    // 실측에서 화해는 `image/jpg` 를 준다(표준 표기가 아니다). 그대로 쓰면 브라우저가
-    // 못 알아볼 수 있어 매개변수를 떼고 정규화한다.
-    const mime = contentType.split(";")[0].trim().toLowerCase();
-    const normalized = mime === "image/jpg" ? "image/jpeg" : mime;
-
-    return `data:${normalized};base64,${buffer.toString("base64")}`;
+    // 디코딩이 곧 검증이다 — 이미지가 아닌 바이트면 sharp 가 던져 아래 catch 로 간다.
+    return await toThumbnailDataUrl(buffer);
   } catch {
-    // 타임아웃·네트워크 실패·리다이렉트 모두 여기로 온다. 썸네일 없이 진행한다.
+    // 타임아웃·네트워크 실패·리다이렉트·디코딩 실패 모두 여기로 온다. 썸네일 없이 진행한다.
     return null;
+  }
+}
+
+/**
+ * 이미 저장된 data URL 을 같은 규격으로 줄인다 — M14 이전에 원본 크기로 들어간 행용.
+ * 실패하면 `null`(예외를 던지지 않는다).
+ */
+export async function shrinkDataUrl(dataUrl: string): Promise<string | null> {
+  const comma = dataUrl.indexOf(",");
+  if (!dataUrl.startsWith("data:") || comma < 0) return null;
+
+  try {
+    return await toThumbnailDataUrl(
+      Buffer.from(dataUrl.slice(comma + 1), "base64"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** 긴 변 256px JPEG data URL. 작은 원본은 키우지 않는다. */
+async function toThumbnailDataUrl(input: Buffer): Promise<string> {
+  const output = await sharp(input)
+    .autoOrient()
+    .resize(THUMBNAIL_SIDE, THUMBNAIL_SIDE, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    // JPEG 에는 투명도가 없다 — 그냥 두면 투명 PNG 의 배경이 검게 나온다.
+    .flatten({ background: "white" })
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer();
+  return `data:image/jpeg;base64,${output.toString("base64")}`;
+}
+
+/** 이보다 큰 공유 이미지는 M14 이전에 원본 크기로 저장된 것이다(축소본은 20KB 안팎). */
+const LARGE_IMAGE_CHARS = 100_000;
+
+/**
+ * 축소를 시도한 제품 id — 동시 조회가 같은 행을 겹쳐 줄이지 않고, 실패 행도 반복하지 않는다.
+ * dev HMR 에 초기화돼도 다시 한 번 시도할 뿐이라 globalThis 에 두지 않는다.
+ */
+const shrinkAttempted = new Set<string>();
+
+/**
+ * 목록 응답에 실린 큰 공유 이미지를 **백그라운드로** 줄여 저장한다(3라운드 M14 — 기존 행 정리).
+ * 응답은 기다리지 않는다: 이번 응답은 큰 그대로, 다음 조회부터 작다.
+ * 카탈로그 이미지를 내보내는 모든 목록(내 선반·인기·성분별)이 부른다 — 한 경로에서만 부르면
+ * 그 사용자의 선반에 없는 행은 영영 크게 남았다(검증 실측: 성분별 응답 234KB 중 228KB 가 한 장).
+ */
+export function shrinkLargeImages(
+  products: readonly { id: string; image?: string }[],
+): void {
+  for (const { id, image } of products) {
+    if (
+      !image ||
+      image.length <= LARGE_IMAGE_CHARS ||
+      shrinkAttempted.has(id)
+    ) {
+      continue;
+    }
+    shrinkAttempted.add(id);
+
+    void shrinkDataUrl(image)
+      .then(async (small) => {
+        if (!small) throw new Error("디코딩 실패");
+        await execute(`UPDATE products SET image = ? WHERE id = ?`, [
+          small,
+          id,
+        ]);
+      })
+      .catch((error: unknown) => {
+        console.warn(`[images] 이미지 축소 실패(${id}):`, error);
+      });
   }
 }

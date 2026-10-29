@@ -27,6 +27,8 @@ const OLD_KEYS = {
   runs: "runs",
 } as const;
 
+type Counts = Record<"products" | "routines" | "profile" | "runs", number>;
+
 /**
  * localStorage → 서버 1회 이관.
  *
@@ -63,19 +65,19 @@ export function MigrateLocalData() {
 
     void (async () => {
       try {
-        const { migrated } = await api.post<{
+        const { migrated, rejected } = await api.post<{
           ok: boolean;
           // 키 이름은 api/migrate/route.ts 의 반환 모양과 같다.
-          migrated: {
-            products: number;
-            routines: number;
-            profile: number;
-            runs: number;
-          };
+          migrated: Counts;
+          // 검증 탈락(손상·길이·개수 초과) — 다시 보내도 같은 결과다(3라운드 m9).
+          rejected: Counts;
         }>("/migrate", { products, routines, runs, profile });
 
-        // 서버는 상한 초과분·검증 탈락분을 조용히 버리고도 ok:true 를 준다.
-        // 카운트가 로컬 건수에 못 미치면 지우지 않는다 — 여기서 지우면 복구 불가 손실이다.
+        /*
+         * 서버가 **모든 항목을 판정했을 때만**(받음 + 탈락 = 보낸 수) 지운다.
+         * 판정되지 않은 항목이 있으면 지우지 않는다 — 여기서 지우면 복구 불가 손실이다.
+         * 예전엔 받음만 비교해서 탈락 1건에도 로컬이 남아 방문마다 전체를 재이관했다.
+         */
         const expected = [
           ["products", products.length],
           ["routines", routines.length],
@@ -83,14 +85,20 @@ export function MigrateLocalData() {
           ["profile", profile === null ? 0 : 1], // 프로필은 단일 객체라 0/1 로 센다
         ] as const;
         const missing = expected
-          .filter(([key, count]) => migrated[key] < count)
-          .map(([key, count]) => `${key} ${count - migrated[key]}건`);
+          .filter(([key, count]) => migrated[key] + rejected[key] < count)
+          .map(
+            ([key, count]) =>
+              `${key} ${count - migrated[key] - rejected[key]}건`,
+          );
 
         if (missing.length > 0) {
           console.warn(
-            `[migrate] 서버가 일부만 받았습니다(${missing.join(", ")} 누락) — 로컬을 유지합니다.`,
+            `[migrate] 서버가 일부만 판정했습니다(${missing.join(", ")} 누락) — 로컬을 유지합니다.`,
           );
           return;
+        }
+        if (Object.values(rejected).some((count) => count > 0)) {
+          console.warn("[migrate] 검증에서 탈락해 옮기지 못한 항목:", rejected);
         }
 
         // 전량 서버에 들어갔다. 이제 로컬은 지운다 — 두 곳에 두면 어느 쪽이 최신인지 알 수 없다.

@@ -161,10 +161,10 @@
   --glass-blur: 12px;
   --glass-fill: rgb(255 255 255 / 85%);
 
-  /* 라이트·다크 둘 다 지원한다고 브라우저에 알린다 — OS 설정에 맞춰 스크롤바·
-     <input type="date"> 같은 네이티브 위젯 색도 함께 전환된다.
-     다크 값 자체는 아래 `:root[data-theme="dark"]` 블록에서 재정의한다(R-Step 6 → 수동 전환 개편). */
-  color-scheme: light dark;
+  /* 스크롤바·<input type="date"> 같은 네이티브 위젯 색. 팔레트와 같이 **data-theme 를 따른다** —
+     예전 `light dark` 는 OS 를 따라가서, OS 다크 + 수동 라이트면 밝은 화면에 검은 스크롤바가
+     나왔다(3라운드 m13). 다크 값은 아래 `:root[data-theme="dark"]` 블록에서 재정의한다. */
+  color-scheme: light;
 }
 
 /* lg 이상에서는 하단 탭바 대신 좌측 사이드바를 쓴다 → 아래 여백이 필요 없다. */

@@ -12,8 +12,13 @@ import { api } from "./client";
 
 export const fetchRoutines = () => api.get<Routine[]>("/routines");
 
-/** 서버가 id·createdAt 을 만들므로 보낼 때는 없어도 된다. */
+/**
+ * 서버가 id·createdAt 을 만들므로 보낼 때는 없어도 된다.
+ * `id` 를 보내면 서버는 그것이 **이 사용자의 같은 condition 루틴**일 때 유지한다 —
+ * 단계 편집이 루틴 id 를 바꾸면 수행 기록(오늘 완료·달성률)이 끊긴다(m7·I9).
+ */
 export type RoutineInput = Omit<Routine, "id" | "createdAt"> & {
+  id?: string;
   steps: Omit<Routine["steps"][number], "id">[];
 };
 

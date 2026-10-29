@@ -31,12 +31,19 @@ export type ProductSearchResponse = {
   candidates: ProductCandidate[];
 };
 
-/** 성분 추출 응답 — 프롬프트 출력 스키마 그대로 */
+/** 성분 추출 응답 — 프롬프트 출력 스키마 + 라우트가 붙이는 출처 */
 export type IngredientsResponse = {
   product_name: string;
   category: string;
   /** **빈 배열이 정상 응답이다** (프롬프트 규칙 2: 확신 없으면 []) */
   ingredients: string[];
+  /**
+   * 성분을 어디서 얻었나 — **모델 출력이 아니라 라우트가 붙인다**(3라운드 M4).
+   * catalog 카탈로그 히트 · brand 공식몰 · photo 사진 판독 · web 웹 추정.
+   */
+  source?: "catalog" | "brand" | "photo" | "web";
+  /** 카탈로그에 저장된 브랜드. `source: "catalog"` 일 때만 온다(빈 문자열 = 브랜드 미상). */
+  brand?: string;
 };
 
 /** 루틴 단계 1개 — 프롬프트 출력 스키마 그대로 */

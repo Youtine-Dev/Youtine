@@ -61,6 +61,15 @@
   color: var(--primary);
 }
 
+/*
+ * 지났지만 안 한 날 / 아직 안 온 날(m32). 예전엔 둘 다 opacity .5 라 대비가 2.53 이었다.
+ * 글자는 둘 다 --on-surface-variant 그대로(라이트 약 8:1 이상) 두고 **모양**으로 나눈다 —
+ * 지난 날은 채운 원(이미 지나감), 올 날은 점선 원(아직 빈 칸).
+ */
+.missed {
+  background: var(--surface-container);
+}
+
 .upcoming {
-  opacity: 0.5;
+  border: 1px dashed var(--outline);
 }

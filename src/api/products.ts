@@ -19,6 +19,13 @@ export const fetchPopularProducts = () =>
   api.get<Product[]>("/products/popular");
 
 /**
+ * 공유 카탈로그 **전체**에서 이름·브랜드·카테고리로 찾는다(AI 없음, 최대 20개).
+ * 인기 목록과 같은 엔드포인트라 개인 사진은 오지 않는다. 빈 배열은 "아직 아무도 안 담음"이다.
+ */
+export const searchCatalogProducts = (input: { query: string }) =>
+  api.get<Product[]>("/products/popular", { query: { q: input.query } });
+
+/**
  * 그 성분이 든 제품을 카탈로그에서 찾는다.
  *
  * **빈 배열은 "아직 담긴 제품이 없다"는 뜻**이지 그런 제품이 없다는 뜻이 아니다 —

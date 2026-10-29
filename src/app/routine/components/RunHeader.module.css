@@ -21,8 +21,9 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  /* 터치 타깃 44px(m30) — 수행 중 젖은 손으로 누르는 닫기다. 오른쪽 빈 칸도 같이 커져 제목이 가운데에 남는다. */
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-full);
   color: var(--on-surface-variant);
   transition:

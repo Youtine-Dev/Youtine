@@ -5,7 +5,7 @@ import { useEffect, useId, useState } from "react";
 
 import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
-import { useProducts, useSkinProfile } from "@/lib/data";
+import { useProducts, useRoutines, useSkinProfile } from "@/lib/data";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 
 import { ROUTINE_CONDITION } from "../../condition";
@@ -14,6 +14,11 @@ import styles from "./RoutineForm.module.css";
 
 /** 프롬프트의 `usable_time` 은 자유 문자열이지만, 고르게 하면 오타·모호한 값이 안 들어온다. */
 const TIME_OPTIONS = ["3분", "5분", "10분", "15분", "20분"] as const;
+
+/** 저장된 시간이 선택지에 있을 때만 쓴다 — 없는 값을 select 에 넣으면 화면과 제출값이 어긋난다. */
+function timeOption(saved: string | undefined, fallback: string): string {
+  return TIME_OPTIONS.find((option) => option === saved) ?? fallback;
+}
 
 /** 실측 약 90초. 이 시점부터는 "정상입니다"라고 알려 줘야 사용자가 안 떠난다. */
 const LONG_WAIT_SECONDS = 20;
@@ -69,17 +74,31 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
   const eveningId = useId();
 
   /*
-   * 기타 루틴은 "내 고민"에 등록한 문장으로 시작한다 — 같은 고민을 두 번 적게 하지 않는다.
-   * `draft === null` 이 "아직 손대지 않음"이다. `useEffect` 로 채우면 프로필이 늦게
+   * 저장된 피부 프로필(고민·가용 시간)로 시작한다 — 다시 만들 때마다 같은 내용을
+   * 다시 적게 하지 않는다(I3). 기타 루틴은 "내 고민"에 등록한 문장이 여기로 온다.
+   * `null` 이 "아직 손대지 않음"이다. `useEffect` 로 채우면 프로필이 늦게
    * 도착했을 때 사용자가 입력하던 내용을 덮어쓴다.
    */
   const profile = useSkinProfile();
-  const registered = focus ? (profile.value?.wonder ?? "") : "";
   const [draft, setDraft] = useState<string | null>(null);
-  const wonder = draft ?? registered;
+  const wonder = draft ?? profile.value?.wonder ?? "";
 
-  const [morning, setMorning] = useState("5분");
-  const [evening, setEvening] = useState("10분");
+  const [morningDraft, setMorning] = useState<string | null>(null);
+  const [eveningDraft, setEvening] = useState<string | null>(null);
+  const morning =
+    morningDraft ?? timeOption(profile.value?.usableTime.morning, "5분");
+  const evening =
+    eveningDraft ?? timeOption(profile.value?.usableTime.evening, "10분");
+
+  /*
+   * 저장이 condition 단위 교체라 같은 condition 의 루틴이 이미 있으면 **통째로 바뀐다**(m24④).
+   * 단계 편집·오늘 완료·이번 주 달성률이 새 루틴 기준으로 다시 시작되므로 제출 전에 알린다.
+   */
+  const condition = focus ? ROUTINE_CONDITION.focus : ROUTINE_CONDITION.basic;
+  const routines = useRoutines();
+  const replacing = routines.value.some(
+    (routine) => routine.condition === condition,
+  );
 
   /** 선반이 비었으면 폼을 보여줄 이유가 없다. `null` 은 "아직 서버 응답 전". */
   const products = useProducts();
@@ -105,7 +124,7 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
     await generate({
       wonder,
       usableTime: { morning, evening },
-      condition: focus ? ROUTINE_CONDITION.focus : ROUTINE_CONDITION.basic,
+      condition,
     });
   }
 
@@ -270,6 +289,17 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
             </select>
           </div>
         </div>
+
+        {replacing && (
+          <p className={styles.replaceNotice}>
+            <Icon name="info" size="sm" />
+            <span>
+              지금 {focus ? "기타" : "기본"} 루틴이 새 루틴으로 바뀌어요. 편집한
+              단계도 사라지고, 오늘 완료와 이번 주 달성률은 새 루틴 기준으로
+              다시 세요. 지난 수행 기록은 남아요.
+            </span>
+          </p>
+        )}
 
         {/* 진행 표시는 전면 오버레이(AIWorkingOverlay)가 맡는다 — 버튼은 잠그기만 한다. */}
         <button className={styles.submit} type="submit" disabled={working}>

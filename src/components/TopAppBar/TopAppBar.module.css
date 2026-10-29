@@ -41,6 +41,16 @@
   height: 40px;
 }
 
+/* 페이지 h1 — 스크린리더 전용(시각 디자인은 인사말 그대로). StepTimer.module.css 와 같은 기법. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .title {
   overflow: hidden;
   font: var(--text-headline-md);
@@ -140,6 +150,11 @@
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+/* 브라우저 기본 placeholder 색은 이 배경에서 4.5:1 미달이다(3라운드 m32). */
+.input::placeholder {
+  color: var(--on-surface-variant);
 }
 
 .input:focus-visible {

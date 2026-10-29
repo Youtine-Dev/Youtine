@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
-import { usePopularProducts } from "@/lib/data";
+import { useCatalogSearch, usePopularProducts } from "@/lib/data";
 import type { Product } from "@/types/skincare";
 
 import { POPULAR_PRODUCTS, searchProducts } from "../products";
@@ -22,14 +22,9 @@ import styles from "./ProductSearch.module.css";
  * 시드에는 성분도 이미지도 없다. 그래서 시드 카드는 상세를 열 수 없고 **등록 폼을 채운다**
  * (거기서 검색·성분 추출을 거쳐 담기면 그 제품이 카탈로그에 들어간다).
  */
-/**
- * 시드 검색(`searchProducts`)과 **같은 규칙** — 공백으로 나눈 토큰이 전부 들어 있어야 한다.
- * 두 목록의 판정이 어긋나면 같은 질의에 한쪽만 걸려 결과가 들쭉날쭉해진다.
- */
-function matchesAll(haystack: string, tokens: string[]): boolean {
-  const lower = haystack.toLowerCase();
-  return tokens.every((token) => lower.includes(token));
-}
+
+/** 서버 검색은 입력이 이만큼 멈춘 뒤에만 부른다 — 글자마다 부르면 요청이 몰린다. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 export function ProductSearch({
   active,
@@ -53,26 +48,26 @@ export function ProductSearch({
   const catalog = popular.value;
   const useCatalog = catalog.length > 0;
 
-  // 둘 다 메모리에 있는 목록이라 입력할 때마다 즉시 거른다 (네트워크 호출이 없어 디바운스 불필요).
   const trimmed = query.trim();
-  const tokens = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
-  const searching = tokens.length > 0;
+  const searching = trimmed.length > 0;
+
+  // 입력이 멈춘 뒤에만 서버를 부른다. setState 가 타이머 콜백 안이라 effect 동기 호출이 아니다.
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(trimmed), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [trimmed]);
 
   /*
-   * ⭐ 검색 대상은 **둘**이다(m10). 시드만 거르면 그리드에 카드로 떠 있던
-   * 카탈로그 제품이 검색에서는 "결과가 없습니다"로 나온다 — 존재하는 제품을
-   * 없다고 안내하는 셈이다.
+   * ⭐ 검색 대상은 **둘**이다(m10). 카탈로그는 **서버에서 전체를** 찾는다(m26) —
+   * 메모리의 인기 상위 12개만 거르면 방금 담은 제품도 "결과가 없습니다"가 된다.
    * 목록을 합치지 않고 나눠 두는 이유는 **클릭 동작이 다르기** 때문이다:
    * 카탈로그는 성분이 있어 상세 모달, 시드는 성분이 없어 등록 폼 프리필.
    */
-  const catalogHits = searching
-    ? catalog.filter((product) =>
-        matchesAll(
-          `${product.productName} ${product.productCompany ?? ""} ${product.category}`,
-          tokens,
-        ),
-      )
-    : [];
+  const found = useCatalogSearch(searching && debounced ? debounced : null);
+  // 화면 검색어와 서버 검색어가 같고 응답이 왔을 때만 결과를 믿는다 — 아니면 "결과 없음"이 잠깐 거짓말을 한다.
+  const settled = debounced === trimmed && found.ready;
+  const catalogHits = searching ? found.value : [];
   // 같은 제품이 양쪽에 있으면 카탈로그만 남긴다 — 성분·이미지를 볼 수 있는 쪽이 낫다.
   const seedHits = searching
     ? searchProducts(trimmed).filter(
@@ -105,24 +100,26 @@ export function ProductSearch({
       <section className={styles.results}>
         <h2 className={styles.heading}>
           {searching ? "검색 결과" : "인기 제품"}
-          {searching && <span className={styles.status}>{hitCount}개</span>}
+          {searching && settled && !found.error && (
+            <span className={styles.status}>{hitCount}개</span>
+          )}
         </h2>
 
         {/*
-          카탈로그가 아직 안 왔으면 검색 중에도 로딩을 보여 준다 — 안 그러면
-          아직 도착하지 않은 카탈로그 제품이 "검색 결과 없음"으로 보인다(m10).
+          서버 검색이 아직 안 끝났으면 로딩을 보여 준다 — 안 그러면 아직 도착하지 않은
+          카탈로그 제품이 "검색 결과 없음"으로 보인다(m10). 실패도 "없음"으로 뭉개지 않는다.
         */}
-        {!popular.ready ? (
-          <DataState loading label="인기 제품" />
-        ) : !searching && popular.error ? (
-          <DataState
-            error
-            onRetry={popular.retry}
-            label="인기 제품"
-            message={popular.errorMessage}
-          />
-        ) : searching ? (
-          hitCount === 0 ? (
+        {searching ? (
+          !settled ? (
+            <DataState loading label="제품" />
+          ) : found.error ? (
+            <DataState
+              error
+              onRetry={found.retry}
+              label="검색 결과"
+              message={found.errorMessage}
+            />
+          ) : hitCount === 0 ? (
             <p className={styles.empty}>
               검색 결과가 없습니다. &lsquo;등록&rsquo; 탭에서 이름으로
               찾아보세요.
@@ -154,6 +151,15 @@ export function ProductSearch({
               ))}
             </ul>
           )
+        ) : !popular.ready ? (
+          <DataState loading label="인기 제품" />
+        ) : popular.error ? (
+          <DataState
+            error
+            onRetry={popular.retry}
+            label="인기 제품"
+            message={popular.errorMessage}
+          />
         ) : useCatalog ? (
           <ul className={styles.grid}>
             {catalog.map((product) => (

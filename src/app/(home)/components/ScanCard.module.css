@@ -59,9 +59,10 @@
   color: var(--on-primary-container);
 }
 
+/* --primary-fixed-dim 은 라이트에서 2.73:1 이었다(3라운드 m32). 제목과 같은 짝 색 = 4.53(라이트)·7.29(다크). */
 .description {
   font: var(--text-body-md);
-  color: var(--primary-fixed-dim);
+  color: var(--on-primary-container);
 }
 
 .cta {

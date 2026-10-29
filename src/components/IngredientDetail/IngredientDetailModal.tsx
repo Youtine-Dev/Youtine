@@ -8,6 +8,7 @@ import { IngredientChip } from "@/components/IngredientChip/IngredientChip";
 import { IngredientProducts } from "@/components/IngredientProducts/IngredientProducts";
 import { useIngredientKnowledge } from "@/lib/data";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { useModalFocus } from "@/lib/useModalFocus";
 
 import styles from "./IngredientDetailModal.module.css";
 
@@ -41,20 +42,14 @@ export function IngredientDetailModal({
   useBodyScrollLock();
 
   /*
-   * 열릴 때 포커스를 모달 안(닫기)으로 옮기고, 닫힐 때 열었던 트리거로 복원한다
-   * (DeleteConfirmModal 과 같은 규율). 복원은 호출부가 여럿(ConcernDictionary·
+   * 열릴 때 포커스를 모달 안(닫기)으로 옮기고, Tab 을 시트 안에 가두고, 닫힐 때 열었던
+   * 트리거로 복원한다(공용 훅, 3라운드 m31). 복원은 호출부가 여럿(ConcernDictionary·
    * ReportSection)이라 각자에게 맡기지 않고 모달이 직접 한다.
    */
   const closeRef = useRef<HTMLButtonElement>(null);
   /** 중첩 모달 판별용 — 이 시트 **안쪽**만 본다(바깥 형제 모달까지 세면 안 된다). */
   const sheetRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const trigger = document.activeElement;
-    closeRef.current?.focus();
-    return () => {
-      if (trigger instanceof HTMLElement) trigger.focus();
-    };
-  }, []);
+  useModalFocus(sheetRef, closeRef);
 
   // Esc 로 닫기 — 다른 모달 3종과 같은 규칙.
   useEffect(() => {

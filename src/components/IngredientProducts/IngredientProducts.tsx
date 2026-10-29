@@ -44,7 +44,8 @@ export function IngredientProducts({ ingredient }: { ingredient: string }) {
       <p className={styles.empty}>
         <Icon name="info" size="sm" />
         <span>
-          <strong>{ingredient}</strong>이(가) 든 제품이 아직 카탈로그에 없어요.
+          {/* 조사 없이 — "이(가)" 자리표시가 화면에 그대로 나왔다(3라운드 m33). */}
+          <strong>{ingredient}</strong> 성분이 든 제품이 아직 카탈로그에 없어요.
           스캔 탭에서 제품을 찾아 담으면 여기에도 나타납니다.
         </span>
       </p>

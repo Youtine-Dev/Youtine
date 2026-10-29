@@ -17,7 +17,7 @@ type Props = {
   /** 불러오지 못했다 */
   error?: boolean;
   onRetry?: () => void;
-  /** 무엇을 못 불러왔는지. 예: "루틴" → "루틴을 불러오지 못했어요" */
+  /** 무엇을 못 불러왔는지. 예: "루틴" → "루틴 불러오지 못했어요"(조사는 붙이지 않는다) */
   label?: string;
   /**
    * 서버가 준 실패 사유(`Resource.errorMessage`). 있으면 기본 안내를 대신한다.
@@ -39,7 +39,8 @@ export function DataState({ loading, error, onRetry, label, message }: Props) {
           (ProductForm·RoutineForm 등)이 쓰는 것과 같은 아이콘·같은 회전이다.
         */}
         <Icon name="progress_activity" size="sm" className={styles.spinner} />
-        {label ? `${label}을(를) 불러오는 중…` : "불러오는 중…"}
+        {/* 조사 없이 쓴다 — "성분을(를)" 처럼 자리표시가 화면에 그대로 나왔다(3라운드 m33). */}
+        {label ? `${label} 불러오는 중…` : "불러오는 중…"}
       </p>
     );
   }
@@ -50,7 +51,7 @@ export function DataState({ loading, error, onRetry, label, message }: Props) {
     <section className={styles.error} role="alert">
       <Icon name="cloud_off" className={styles.icon} />
       <p className={styles.text}>
-        {label ? `${label}을(를) 불러오지 못했어요.` : "불러오지 못했어요."}
+        {label ? `${label} 불러오지 못했어요.` : "불러오지 못했어요."}
         <br />
         {message ?? "인터넷 연결을 확인해 주세요."}
       </p>

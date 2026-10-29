@@ -24,9 +24,9 @@ export const metadata: Metadata = {
 export default function ConcernPage() {
   return (
     <>
-      <TopAppBar />
+      <TopAppBar title="내 고민" />
 
-      <main className={styles.main}>
+      <main id="main" className={styles.main}>
         {/* 제목을 컴포넌트가 직접 갖는다 — 입력 화면과 결과 화면의 제목이 다르다. */}
         <ConcernSection />
 

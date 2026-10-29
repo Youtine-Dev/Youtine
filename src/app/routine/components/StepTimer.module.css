@@ -1,16 +1,12 @@
 /*
- * 히어로 타이머 — 사진 영역 상단을 통째로 차지하는 큰 터치 타깃(사용자 요청 2026-08-20).
+ * 히어로 타이머 — 제목과 버튼 사이 남는 높이를 통째로 차지하는 큰 터치 타깃(사용자 요청 2026-08-20).
  * 옛 "회전하는 원형 버튼"은 남은 시간이 작게 숨어 있어 폐기했다 — 지금은
  * 진입 즉시 큰 숫자가 보이고, 넓은 영역을 탭해 일시정지/계속한다.
- * 하단은 히어로 안의 "다음" 버튼 영역이라 bottom 으로 비워 둔다(RoutineRunner.module.css).
+ * 히어로의 흐름 배치(제목 → 타이머 → 버튼) 안에 있어 제목과 겹치지 않는다(M15②).
  */
 .timer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  /* 히어로 하단의 다음 버튼 줄(패딩 16 + 버튼 56 + 여유)을 침범하지 않는다 */
-  bottom: 96px;
+  /* 남는 높이를 채우되 숫자보다 작아지지는 않는다 — 모자라면 히어로가 자란다 */
+  flex: 1;
   /* 사진(0)·스크림(1) 위 — RoutineRunner.module.css 의 쌓임 규칙과 한 세트다 */
   z-index: 2;
   display: flex;
@@ -26,8 +22,9 @@
   transform: scale(0.99);
 }
 
+/* 뷰포트(vw)가 아니라 히어로 칸 폭(cqi) 기준 — 768px 의 좁은 열에서 88px 로 넘치던 원인(M15②). */
 .time {
-  font-size: clamp(56px, 16vw, 88px);
+  font-size: clamp(48px, 20cqi, 88px);
   font-weight: 700;
   line-height: 1;
   color: var(--on-surface);
@@ -61,4 +58,17 @@
 
 .onPhoto.finished .time {
   color: rgb(255 255 255 / 96%);
+}
+
+/* 화면에는 안 보이고 스크린리더만 읽는다 — 타이머 종료 알림용(I11). */
+.srOnly {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

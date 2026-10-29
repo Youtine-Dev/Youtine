@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { splitIngredients } from "./brandSites";
+import { nameTokens, splitIngredients, titleMatches } from "./brandSites";
 
 /**
  * 전성분 문자열을 쪼개는 단 하나의 지점이다. 여기서 성분 하나가 잘못 갈라지면
@@ -73,5 +73,109 @@ describe("splitIngredients", () => {
       "알란토인",
       "향료",
     ]);
+  });
+
+  it("소수점 함량이 붙은 활성 성분을 버리지 않는다 (M3)", () => {
+    // 마침표 필터가 `0.1` 의 소수점까지 걸러 레티놀이 빠지면 레티놀×AHA 충돌이 검사되지 않는다.
+    expect(
+      splitIngredients(
+        "정제수, 레티놀(0.1%), 살리실릭애씨드 0.5%, 아데노신(0.04%), 나이아신아마이드(2%)",
+      ),
+    ).toEqual([
+      "정제수",
+      "레티놀(0.1%)",
+      "살리실릭애씨드 0.5%",
+      "아데노신(0.04%)",
+      "나이아신아마이드(2%)",
+    ]);
+  });
+
+  it("소수점이 든 홍보 문구라도 문장 마침표가 있으면 계속 거른다", () => {
+    expect(
+      splitIngredients("정제수, 글리세린, 보습력 2.5배 개선된 크림."),
+    ).toEqual(["정제수", "글리세린"]);
+  });
+});
+
+/** 웰라쥬 어댑터의 브랜드 표기 — 실제 `ADAPTERS` 값과 같다. */
+const WELLAGE = ["웰라쥬", "wellage"];
+
+const page = (head: string) => `<html><head>${head}</head><body></body></html>`;
+
+describe("nameTokens", () => {
+  it("용량·한 글자 토큰을 빼고 순서를 유지한다", () => {
+    expect(nameTokens("리얼 히알루로닉 블루 100 앰플 50ml")).toEqual([
+      "리얼",
+      "히알루로닉",
+      "블루",
+      "앰플",
+    ]);
+  });
+
+  it("브랜드 표기 토큰을 뺀다 — 그 몰의 모든 제목에 있어 제품을 가리지 못한다", () => {
+    expect(nameTokens("웰라쥬 리얼 히알루로닉 앰플", WELLAGE)).toEqual([
+      "리얼",
+      "히알루로닉",
+      "앰플",
+    ]);
+  });
+});
+
+describe("titleMatches", () => {
+  it("og:title 이 사이트명뿐이면 <title> 로 대조한다 (M5 — 웰라쥬 실측 형태)", () => {
+    const html = page(
+      '<meta property="og:title" content="웰라쥬">' +
+        "<title>리얼 히알루로닉 스킨케어 세트(토너+앰플+수딩크림 구성) - 웰라쥬</title>",
+    );
+    expect(titleMatches(html, "리얼 히알루로닉 스킨케어 세트", WELLAGE)).toBe(
+      true,
+    );
+  });
+
+  it("og:title·<title> 이 모두 사이트명이면 JSON-LD Product name 으로 대조한다", () => {
+    const html = page(
+      '<meta property="og:title" content="웰라쥬"><title>웰라쥬</title>' +
+        '<script type="application/ld+json">' +
+        JSON.stringify({
+          "@type": "Product",
+          name: "리얼 히알루로닉 블루 100 앰플",
+          brand: { "@type": "Brand", name: "웰라쥬" },
+        }) +
+        "</script>",
+    );
+    expect(titleMatches(html, "리얼 히알루로닉 앰플", WELLAGE)).toBe(true);
+  });
+
+  it("다른 제품 페이지는 출처를 바꿔 봐도 통과하지 않는다", () => {
+    const html = page(
+      '<meta property="og:title" content="콜라겐 탄력 크림">' +
+        "<title>콜라겐 탄력 크림 - 웰라쥬</title>",
+    );
+    expect(titleMatches(html, "히알루로닉 앰플", WELLAGE)).toBe(false);
+  });
+
+  it("브랜드명은 표를 주지 않는다 — 수딩 젤 페이지가 '웰라쥬 수딩 크림' 으로 통과하면 안 된다", () => {
+    // 브랜드 토큰을 세면 웰라쥬+수딩 2/3 로 통과해 젤의 성분이 크림에 붙는다.
+    const html = page("<title>리얼 히알루로닉 수딩 젤 - 웰라쥬</title>");
+    expect(titleMatches(html, "웰라쥬 수딩 크림", WELLAGE)).toBe(false);
+  });
+
+  it("2토큰 이름은 둘 다 맞아야 한다 — 절반(흔한 단어 하나)으로는 통과하지 않는다 (I15)", () => {
+    const html = page("<title>히알루로닉 크림</title>");
+    expect(titleMatches(html, "수분 크림")).toBe(false);
+    expect(titleMatches(html, "히알루로닉 크림")).toBe(true);
+  });
+
+  it("과반이면 표기 차이를 허용하고, 정확히 절반이면 거절한다", () => {
+    const html = page("<title>리얼 히알루로닉 블루 100 앰플</title>");
+    // 3토큰 중 2 — 과반
+    expect(titleMatches(html, "히알루로닉 수분 앰플")).toBe(true);
+    // 4토큰 중 2 — 절반
+    expect(titleMatches(html, "히알루로닉 수분 앰플 대용량")).toBe(false);
+  });
+
+  it("브랜드만 적은 이름은 제품을 특정하지 못해 거절한다", () => {
+    const html = page("<title>웰라쥬</title>");
+    expect(titleMatches(html, "웰라쥬", WELLAGE)).toBe(false);
   });
 });
