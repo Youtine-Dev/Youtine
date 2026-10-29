@@ -1,8 +1,8 @@
 {
-  "name": "al-front",
+  "name": "youtine",
   "version": "0.1.0",
   "private": true,
-  "description": "유틴(youtine) — 내가 가진 화장품만으로 피부 고민·가용 시간에 맞춘 스킨케어 루틴을 AI가 만들어 주는 앱. 패키지명 al-front 는 초기 프로젝트명(Animal League)이 남은 것이다.",
+  "description": "유틴(youtine) — 내가 가진 화장품만으로 피부 고민·가용 시간에 맞춘 스킨케어 루틴을 AI가 만들어 주는 앱.",
   "license": "MIT",
   "engines": {
     "node": ">=20.9.0"
