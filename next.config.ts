@@ -43,8 +43,13 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
 
   images: {
-    // next/image 로 불러올 외부 이미지 도메인을 여기에 화이트리스트로 등록합니다.
-    // 예시이므로 실제 사용하는 도메인으로 교체하세요.
+    /*
+     * ⛔ 이미지 최적화 API(`/_next/image`)를 **끈다**(3라운드 M1).
+     * 앱의 `<Image>` 는 전부 `unoptimized`(data URL·외부 썸네일을 그대로 띄움)라 최적화를
+     * 쓰지 않는데, 엔드포인트는 열려 있어 RCE·SSRF 권고(GHSA-2xp9-vwfh-vxw4,
+     * GHSA-cjq9-62q9-8jv4)의 공격면만 남아 있었다. 이 값이면 `/_next/image` 가 404 다.
+     */
+    unoptimized: true,
     remotePatterns: [
       /*
        * 화해 CDN — 후보 검색이 주는 제품 썸네일(`/api/ai/search`).
@@ -52,8 +57,6 @@ const nextConfig: NextConfig = {
        * data URL 로 바꿔 저장하므로(`src/lib/images.ts`), 담긴 뒤에는 외부 요청이 없다.
        */
       { protocol: "https", hostname: "img.hwahae.co.kr" },
-      // 네이버 쇼핑 검색 결과의 상품 썸네일 (현재 미사용 — 검색 API 가 막혀 제거됐다)
-      { protocol: "https", hostname: "**.pstatic.net" },
     ],
   },
 

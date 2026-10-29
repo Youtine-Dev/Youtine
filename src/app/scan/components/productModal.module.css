@@ -468,8 +468,35 @@
   transition: background 0.2s ease;
 }
 
-.secondary:hover {
+.secondary:hover:not(:disabled) {
   background: var(--surface-container-low);
+}
+
+.secondary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* 확인 단계의 되돌리기 어려운 동작(선반에서 빼기) — 보조 버튼 모양에 오류 색만 입힌다. */
+.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--error-container);
+  color: var(--on-error-container);
+}
+
+/* 이미 담긴 제품 안내 / 빼기 확인 문구 (인기 제품 모달) */
+.shelfNote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--on-surface-variant);
+  font: var(--text-body-md);
+  text-align: center;
 }
 
 /* 빈 성분 안내 아래의 다음 행동 — 모달을 닫고 성분표 촬영으로 보낸다. */

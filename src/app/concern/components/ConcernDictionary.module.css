@@ -58,7 +58,8 @@
 .scenario {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
+  /* 터치 타깃 44px(3라운드 m30 — 실측 38px). 줄바꿈 간격 8px 은 그대로라 서로 겹치지 않는다. */
+  min-height: 44px;
   padding: 6px 14px;
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-full);

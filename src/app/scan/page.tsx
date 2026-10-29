@@ -39,14 +39,14 @@ export default async function ScanPage({ searchParams }: PageProps<"/scan">) {
   return (
     <>
       {/* 다른 탭(홈·고민·루틴)과 같은 상단바 — 인사말·설정 진입점을 스캔에서도 제공한다. */}
-      <TopAppBar />
+      <TopAppBar title="스캔" />
 
       {/*
         Next 는 내비게이션 후 스크롤 대상 요소에 focus() 를 부른다. tabIndex 가 없으면
         그 호출이 no-op 이라, 패널 안 버튼으로 탭을 바꿨을 때 그 버튼이 hidden 이 되며
         포커스가 body 로 튄다(키보드·스크린리더 사용자가 페이지 맨 위로 되돌아간다).
       */}
-      <main className={styles.main} tabIndex={-1}>
+      <main id="main" className={styles.main} tabIndex={-1}>
         <ScanTabs active={active} />
 
         <ScanWorkspace active={active} />

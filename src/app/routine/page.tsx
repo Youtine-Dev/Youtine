@@ -27,9 +27,9 @@ export const dynamic = "force-dynamic";
 export default function RoutinePage() {
   return (
     <>
-      <TopAppBar />
+      <TopAppBar title="루틴" />
 
-      <main className={styles.main}>
+      <main id="main" className={styles.main}>
         <WeekStrip />
         <RoutineList />
 

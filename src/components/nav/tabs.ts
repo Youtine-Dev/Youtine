@@ -27,6 +27,16 @@ export const NAV_TABS: readonly NavTab[] = [
 ];
 
 /**
+ * 탭 활성 판정 — 하위 경로(`/routine/new`)에서도 그 탭이 켜져 있어야 "지금 어디인지"가 보인다
+ * (3라운드 I13). `/` 는 모든 경로의 접두사라 정확히 일치할 때만.
+ * `/` 를 붙여 비교해야 `/routines` 같은 형제 경로가 `/routine` 탭을 켜지 않는다.
+ */
+export function isActiveTab(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
  * 루틴 수행 화면(`/routine/<루틴id>/1` …)은 한 가지 일에 집중시키는 화면이라
  * 네비게이션을 감춘다. 빠져나가는 길은 헤더의 닫기 버튼이다.
  *

@@ -12,6 +12,7 @@ import { IngredientProducts } from "@/components/IngredientProducts/IngredientPr
 import { ApiError } from "@/api/client";
 import { generateShelfReport, useProducts, useShelfReport } from "@/lib/data";
 import { SKIN_TYPES } from "@/lib/prompts/interactions";
+import { realWarnings } from "@/lib/warnings";
 import type { IngredientPair } from "@/api/ai";
 import type { Product } from "@/types/skincare";
 
@@ -71,13 +72,14 @@ type ProductWarnings = { id: string; name: string; lines: WarningLine[] };
  *
  * `warnings` 는 지연 생성이라 optional 이다(useIngredientAlerts.ts 와 같은 계약).
  * 아직 안 만들어진 제품은 "주의 성분 없음"으로 지어내지 않고 그냥 집계에서 뺀다.
+ * "성분 정보 부족" 고정 문구도 뺀다 — 경고가 아니라 안내다(m27).
  */
 function warningsByProduct(products: readonly Product[]): ProductWarnings[] {
   return products
     .map((product) => ({
       id: product.id,
       name: product.productName,
-      lines: (product.warnings ?? []).map((text, index) => ({
+      lines: realWarnings(product.warnings ?? []).map((text, index) => ({
         key: `${product.id}-${index}`,
         ingredients: mentionedIngredients(text, product.ingredients),
         text,
@@ -96,6 +98,9 @@ const SUB_TABS: readonly { id: SubTab; label: string }[] = [
 
 /** 최초 생성은 1~2분 — 이 시점부터 "정상"이라고 알려야 사용자가 안 떠난다. */
 const LONG_WAIT_SECONDS = 20;
+
+/** 429(이전 요청 진행 중)일 때 캐시를 다시 볼 때까지의 간격. */
+const BUSY_RECHECK_MS = 15_000;
 
 /**
  * AI 분석 리포트 — 세 하위 탭.
@@ -136,7 +141,16 @@ export function ReportSection({
       // 결과 탭이 보이게 옮겨 준다 — 종합 탭에서 눌렀으면 결과가 안 보인다.
       setSubTab((tab) => (tab === "summary" ? "synergy" : tab));
     } catch (cause: unknown) {
-      if (cause instanceof ApiError) {
+      /*
+       * 429 = 이 사용자의 이전 요청이 아직 돈다(분석 중 새로고침 등, m23). 다시 눌러도 429 뿐이니
+       * 기다렸다가 캐시를 다시 본다 — 앞 분석이 끝났으면 그 결과가 뜨고, 아니면 버튼이 남는다.
+       */
+      if (cause instanceof ApiError && cause.status === 429) {
+        setGenerateError(
+          "이전 분석이 아직 진행 중이에요. 잠시 후 결과를 다시 확인할게요.",
+        );
+        setTimeout(report.retry, BUSY_RECHECK_MS);
+      } else if (cause instanceof ApiError) {
         const body = cause.body as { message?: string } | null;
         setGenerateError(
           body?.message ?? `분석하지 못했어요 (${cause.status})`,
@@ -310,7 +324,8 @@ export function ReportSection({
         )}
       </div>
 
-      {generateError && (
+      {/* 분석 결과가 생기면(재확인 성공 포함) 앞선 실패 안내는 낡은 것이다. */}
+      {generateError && !analyzed && (
         <p className={styles.generateError} role="alert">
           <Icon name="error" size="sm" />
           {generateError}

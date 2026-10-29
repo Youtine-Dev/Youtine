@@ -17,7 +17,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdir, unlink } from "node:fs/promises";
+import { readdir, rm, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -49,6 +49,11 @@ export type RunClaudeOptions = {
    * **false 로 되돌리려면 그 호출부가 왜 남겨야 하는지 근거를 함께 적을 것.**
    */
   cleanupSession?: boolean;
+  /**
+   * 요청이 끊기면(새로고침·탭 닫기) 자식을 죽인다 — Route Handler 의 `request.signal` 을 넘긴다.
+   * 없으면 사용자가 떠난 뒤에도 결과를 버릴 호출이 끝까지 돌면서 가드를 쥐고 있었다(3라운드 m3).
+   */
+  signal?: AbortSignal;
 };
 
 const DEFAULT_TIMEOUT_MS = 600_000;
@@ -64,6 +69,7 @@ function spawnClaude(
   args: string[],
   prompt: string,
   timeoutMs: number,
+  signal: AbortSignal | undefined,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
@@ -76,6 +82,13 @@ function spawnClaude(
       env,
       windowsHide: true,
       timeout: timeoutMs,
+      // abort 되면 Node 가 killSignal 로 죽이고 'error'(AbortError) 를 낸다 → 아래 reject.
+      signal,
+      /*
+       * SIGTERM 을 무시하는 자식이면 `close` 가 영영 안 와 가드가 무기한 잠긴다
+       * (Node 의미론 — 리눅스 실측). 버릴 결과라 정리 기회를 줄 이유가 없다.
+       */
+      killSignal: "SIGKILL",
     });
 
     let stdout = "";
@@ -103,8 +116,18 @@ function spawnClaude(
         return;
       }
       if (code !== 0) {
+        /*
+         * 실패 사유는 stderr 가 아니라 **stdout 봉투**에 있다(3라운드 M11 실측: 로그아웃 상태 →
+         * exit 1, stderr 0바이트, stdout `{"is_error":true,"result":"Not logged in · Please run /login"}`).
+         * stderr 만 보면 메시지가 비어 `/api/health/ai` 의 인증 만료 판별이 영영 안 걸린다.
+         */
+        // 둘 다 담는다 — stderr 에는 무관한 경고(예: 작업 공간 신뢰 안내)가 섞여 있어
+        // `stderr || 봉투` 로 고르면 진짜 사유가 가려진다(실측: 경고 때문에 reason 이 "error").
+        const reason = [envelopeReason(stdout), stderr.trim()]
+          .filter(Boolean)
+          .join(" | ");
         reject(
-          new Error(`claude 실행 실패(exit ${code}): ${stderr.slice(0, 500)}`),
+          new Error(`claude 실행 실패(exit ${code}): ${reason.slice(0, 500)}`),
         );
         return;
       }
@@ -117,10 +140,25 @@ function spawnClaude(
   });
 }
 
+/** 실패한 실행의 stdout 봉투에서 사유(`result`)를 꺼낸다. 봉투가 아니면 원문 앞부분. */
+function envelopeReason(stdout: string): string {
+  try {
+    const envelope = JSON.parse(stdout) as Envelope;
+    if (typeof envelope.result === "string") return envelope.result;
+  } catch {
+    // 봉투가 아니다 — 아래 원문으로.
+  }
+  return stdout.slice(0, 300);
+}
+
 /**
  * 세션 트랜스크립트 삭제.
  * 프로젝트 폴더명이 cwd 에서 파생돼 예측이 어려우므로 전 폴더를 훑어 같은 이름을 지운다.
  * 실패해도 본 작업을 막지 않는다(응답은 이미 받았다) — 대신 경고를 남긴다.
+ *
+ * `<sessionId>.jsonl` 옆의 `<sessionId>/` 디렉터리도 지운다 — 웹 도구가 큰 결과를
+ * `tool-results/webfetch-*.bin` 으로 거기 쓴다(3라운드 m16: 짝 없는 고아 디렉터리 실측).
+ * 세션 ID 는 `randomUUID()` 라 경로 주입 여지는 없다.
  */
 async function removeSessionTranscript(sessionId: string): Promise<void> {
   const base = join(homedir(), ".claude", "projects");
@@ -136,6 +174,11 @@ async function removeSessionTranscript(sessionId: string): Promise<void> {
           } catch {
             // 그 폴더엔 없는 게 정상이다.
           }
+          // force: 없으면 조용히 넘어간다.
+          await rm(join(base, entry.name, sessionId), {
+            recursive: true,
+            force: true,
+          });
         }),
     );
   } catch (error: unknown) {
@@ -155,6 +198,7 @@ export async function runClaude(
     allowedTools = [],
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cleanupSession = true,
+    signal,
   } = options;
 
   /*
@@ -198,7 +242,7 @@ export async function runClaude(
 
   let envelope: Envelope | undefined;
   try {
-    const stdout = await spawnClaude(args, prompt, timeoutMs);
+    const stdout = await spawnClaude(args, prompt, timeoutMs, signal);
 
     try {
       envelope = JSON.parse(stdout) as Envelope;

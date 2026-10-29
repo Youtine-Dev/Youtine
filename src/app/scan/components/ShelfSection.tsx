@@ -7,6 +7,7 @@ import { DataState } from "@/components/DataState/DataState";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { Icon } from "@/components/Icon";
 import { useProducts } from "@/lib/data";
+import { realWarnings } from "@/lib/warnings";
 import type { Product } from "@/types/skincare";
 
 import { PopularProductModal } from "./PopularProductModal";
@@ -69,7 +70,8 @@ export function ShelfSection({
       )}
 
       {products.map((product) => {
-        const flagged = (product.warnings?.length ?? 0) > 0;
+        // "성분 정보 부족" 고정 문구는 경고가 아니다 — 성분이 없다는 사실이 "위험"으로 보이면 안 된다(m27).
+        const flagged = realWarnings(product.warnings ?? []).length > 0;
 
         return (
           <ProductCard

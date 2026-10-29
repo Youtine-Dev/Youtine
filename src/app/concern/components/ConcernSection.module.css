@@ -51,8 +51,9 @@
     box-shadow 0.2s ease;
 }
 
+/* --outline 은 이 배경에서 4.06:1 로 미달이었다(3라운드 m32). */
 .input::placeholder {
-  color: var(--outline);
+  color: var(--on-surface-variant);
 }
 
 .input:focus-visible {

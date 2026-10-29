@@ -14,6 +14,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  /* 펼침 행이 실측 42px — 터치 타깃 44px 기준(m30) */
+  min-height: 44px;
   cursor: pointer;
   /* 브라우저 기본 삼각형 대신 오른쪽 chevron을 쓴다 */
   list-style: none;
@@ -135,8 +137,17 @@
   white-space: nowrap;
 }
 
+/*
+ * 제품명 칩. 예전엔 flex-shrink: 0 에 폭 제한이 없어 360px 에서 36자↑ 제품명이
+ * 가로 스크롤을 만들고 같은 행의 단계명을 0폭으로 지웠다(M15①).
+ * 행의 절반까지만 쓰고 줄바꿈한다 — 어떤 제품을 쓰는지가 핵심 정보라 말줄임으로 숨기지 않는다.
+ */
 .stepCategory {
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 50%;
+  overflow-wrap: anywhere;
+  text-align: end;
   font: var(--text-label-sm);
   font-size: 10px;
   letter-spacing: var(--tracking-label-sm);

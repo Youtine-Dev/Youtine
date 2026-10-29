@@ -9,16 +9,18 @@
  * (커밋 `674d254`). 되돌리지 말 것.
  */
 
-import { acquire, release } from "@/lib/ai/guard";
+import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
+import { readJsonObject } from "@/lib/db/input";
 import { selectRows } from "@/lib/db/pool";
 import { isAllowedImageUrl } from "@/lib/images";
 import {
   buildProductSearchPrompt,
   MAX_CANDIDATES,
 } from "@/lib/prompts/productSearch";
+import { candidateKey, matchesQuery } from "@/lib/searchMatch";
 
 export const runtime = "nodejs";
 
@@ -64,8 +66,14 @@ function dig(value: unknown, ...keys: string[]): unknown {
   return current;
 }
 
-/** 화해 항목 1개 → 우리 Candidate. 이름이 없으면 버린다(AI 경로의 narrowCandidate 와 같은 규율). */
-function hwahaeItemToCandidate(value: unknown): Candidate | null {
+/**
+ * 화해 항목 1개 → 우리 Candidate. 이름이 없으면 버린다(AI 경로의 narrowCandidate 와 같은 규율).
+ * 검색어와 겹치지 않는 항목도 버린다(m29) — 화해는 무의미한 검색어에도 퍼지 매칭으로 아무 제품이나 준다.
+ */
+function hwahaeItemToCandidate(
+  value: unknown,
+  query: string,
+): Candidate | null {
   if (typeof value !== "object" || value === null) return null;
   const item = value as Record<string, unknown>;
 
@@ -73,8 +81,10 @@ function hwahaeItemToCandidate(value: unknown): Candidate | null {
     typeof item.productName === "string" ? item.productName.trim() : "";
   if (!productName) return null;
 
-  // 브랜드는 "토리든 (Torriden)" 형태다 — 화면·매칭은 한글 표기만 쓴다.
+  // 브랜드는 "토리든 (Torriden)" 형태다 — 화면·병합 키는 한글 표기만 쓴다.
   const rawBrand = typeof item.brand === "string" ? item.brand.trim() : "";
+  // 검색어 판정만은 영문 표기가 남은 원문으로 한다 — "cosrx" 가 "코스알엑스 (COSRX)" 에 맞도록.
+  if (!matchesQuery(query, `${rawBrand} ${productName}`)) return null;
   const brand = rawBrand ? rawBrand.replace(/\s*\([^)]*\)\s*$/, "") : null;
 
   // "50ml / 1.69 fl. oz." → "50ml". 형식이 흔들려도 첫 세그먼트만 취한다.
@@ -176,13 +186,12 @@ function mergeCandidates(
   primary: Candidate[],
   extra: Candidate[],
 ): Candidate[] {
-  const key = (c: Candidate) =>
-    `${c.product_name.toLowerCase().replace(/\s+/g, "")}`;
-  const seen = new Set(primary.map(key));
+  const seen = new Set(primary.map(candidateKey));
   const merged = [...primary];
   for (const candidate of extra) {
-    if (seen.has(key(candidate))) continue;
-    seen.add(key(candidate));
+    const key = candidateKey(candidate);
+    if (seen.has(key)) continue;
+    seen.add(key);
     merged.push(candidate);
     if (merged.length >= MAX_CANDIDATES) break;
   }
@@ -241,7 +250,7 @@ async function searchHwahaeDirect(query: string): Promise<DirectResult> {
   return {
     status: "ok",
     candidates: list
-      .map(hwahaeItemToCandidate)
+      .map((item) => hwahaeItemToCandidate(item, query))
       .filter((item): item is Candidate => item !== null)
       .slice(0, MAX_CANDIDATES),
   };
@@ -308,7 +317,7 @@ function pruneSearchCache(cache: Map<string, CacheEntry>): void {
 
 export async function POST(request: Request) {
   /*
-   * ⚠️ 동시 실행 가드(acquire)는 **AI 폴백 직전**에만 건다(m4).
+   * ⚠️ 동시 실행 가드(acquireOrBusy)는 **AI 폴백 직전**에만 건다(m4).
    *    캐시·카탈로그·화해 직파싱은 claude 프로세스를 띄우지 않고 0.5~2초에 끝나는데,
    *    예전에는 이것들까지 가드 뒤에 있어서 루틴 생성(90초)이 도는 동안
    *    제품 검색·등록 흐름 전체가 429 로 막혔다.
@@ -324,12 +333,10 @@ export async function POST(request: Request) {
       );
     }
 
-    let body: { query?: unknown };
-    try {
-      body = (await request.json()) as { query?: unknown };
-    } catch {
+    const body = await readJsonObject(request);
+    if (!body) {
       return Response.json(
-        { message: "JSON 본문이 아닙니다." },
+        { message: "JSON 객체 본문이 아닙니다." },
         { status: 400 },
       );
     }
@@ -414,17 +421,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 여기서부터가 claude 프로세스를 띄우는 구간이다 — 사용자당 동시 1건.
+    // 여기서부터가 claude 프로세스를 띄우는 구간이다 — 사용자당 동시 1건 + 전역 상한.
     const userId = await currentUserId();
-    if (!acquire(userId)) {
-      return Response.json(
-        {
-          message:
-            "이미 처리 중인 요청이 있습니다. 완료 후 다시 시도해 주세요.",
-        },
-        { status: 429 },
-      );
-    }
+    const busy = acquireOrBusy(userId);
+    if (busy) return busy;
 
     // 2차(폴백): 기존 헤드리스 Claude 경로. 프롬프트·검증 규율은 그대로다.
     try {
@@ -432,6 +432,8 @@ export async function POST(request: Request) {
         // 이 엔드포인트만 웹 도구를 연다. 다른 도구는 주지 않는다.
         allowedTools: ["WebSearch", "WebFetch"],
         timeoutMs: TIMEOUT_MS,
+        // 사용자가 떠나면 자식을 죽여 가드를 바로 푼다(m3).
+        signal: request.signal,
         /*
          * 검색어가 트랜스크립트에 남지만 러너 기본값(cleanupSession: true)이 지운다.
          * 2026-08-21 이전엔 여기만 명시적으로 true 였고 나머지 호출부는 안 지웠다 —

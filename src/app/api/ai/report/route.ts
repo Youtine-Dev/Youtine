@@ -11,11 +11,13 @@
  * (프롬프트 규칙 2), concern 실측에서 모델이 웹 도구를 호출하지 않는 것을 확인했다.
  */
 
-import { acquire, release } from "@/lib/ai/guard";
+import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
+import { readJsonObject } from "@/lib/db/input";
 import { execute, selectRows } from "@/lib/db/pool";
+import { canonicalIngredient, sameIngredient } from "@/lib/ingredientNames";
 import {
   buildInteractionsPrompt,
   MAX_CONFLICTS,
@@ -106,9 +108,8 @@ function narrowReport(
       if (!isSkinType(skinType) || !ingredient || !caution) return null;
       /*
        * 규칙 4 위반 — "보유 성분 중 그 타입이 주의할 것"만 와야 한다(m12).
-       * 규칙 1·5 는 `owned` 로 강제하면서 여기만 빠져 있었다. 이 항목은 '내 선반 분석'으로
-       * 표시될 뿐 아니라 `harvestKnowledge` 가 **공유 테이블**로 수확하므로,
-       * 보유하지도 않은 성분의 주의가 전 사용자에게 사실처럼 퍼진다.
+       * 규칙 1·5 는 `owned` 로 강제하면서 여기만 빠져 있었다. 보유하지도 않은 성분의 주의가
+       * '내 선반 분석'으로 사실처럼 표시된다.
        */
       if (!owned.has(ingredient)) {
         console.warn(
@@ -191,10 +192,16 @@ function narrowReport(
  * 새로 생성된 분석에서 **공유 지식**을 수확한다(사용자 지시 2026-08-20).
  *
  * 같은 지식(레티놀×비타민C 충돌 등)을 사용자마다 AI 로 다시 사지 않도록,
- * 사용자와 무관한 부분 — 성분 쌍(시너지·충돌)과 타입별 주의 — 을
- * `ingredient_pairs`·`ingredient_effects` 에 INSERT IGNORE 로 쌓는다.
- * 유니크 키가 중복을 걸러 주므로 이미 아는 지식은 조용히 무시된다.
+ * 사용자와 무관한 **성분 쌍(시너지·충돌)만** `ingredient_pairs` 에 쌓는다.
  *
+ * - 피부 타입별 주의는 수확하지 않는다(3라운드 m12) — "이 제품의 고농도 …" 같은
+ *   **제품 고유 맥락** 문장이라 공유 지식으로 영구 저장하면 다른 제품에도 사실처럼 붙는다.
+ * - 같은 쌍에 **다른 kind 가 이미 있으면 넣지 않는다**(3라운드 M7). 유니크 키가 (a, b, kind) 라
+ *   시드가 '충돌'인 쌍에 LLM 이 '시너지'라 답하면 둘 다 쌓였다. 충돌을 먼저 넣으므로
+ *   한 리포트 안에서 양쪽에 나오면 충돌이 이긴다(안전 우선).
+ * - 성분명은 별칭 표의 대표명으로 모은다 — 라벨 표기("Glycolic Acid")별로 쪼개 쌓이지 않게.
+ * - a < b 정렬은 **DB 가** 한다(3라운드 m11). JS `localeCompare` 는 `CHECK (a < b)` 의
+ *   `utf8mb4_unicode_ci` 와 순서가 달라 라틴↔한글 혼합 쌍이 INSERT IGNORE 로 조용히 버려졌다.
  * - 캐시 히트 경로에서는 부르지 않는다(처음 생성될 때 이미 수확했다).
  * - 쌍은 정확히 2개짜리만(스키마가 이진 관계다). 3개 조합은 건너뛴다.
  * - 실패해도 응답을 막지 않는다 — 지식 축적은 부산물이지 기능이 아니다.
@@ -204,8 +211,9 @@ async function harvestKnowledge(report: ShelfReport): Promise<void> {
     (item) => {
       if (item.ingredients.length !== 2) return [];
       const kind = report.conflicts.includes(item) ? "conflict" : "synergy";
-      const [a, b] = [...item.ingredients].sort((x, y) => x.localeCompare(y));
-      if (a === b) return [];
+      const a = canonicalIngredient(item.ingredients[0]);
+      const b = canonicalIngredient(item.ingredients[1]);
+      if (!a || !b || sameIngredient(a, b)) return [];
       return [{ a, b, kind, description: item.description }];
     },
   );
@@ -214,17 +222,15 @@ async function harvestKnowledge(report: ShelfReport): Promise<void> {
     await execute(
       `INSERT IGNORE INTO ingredient_pairs
          (id, ingredient_a, ingredient_b, kind, description, source)
-       VALUES (UUID(), ?, ?, ?, ?, 'shelf_report')`,
-      [row.a, row.b, row.kind, row.description],
-    );
-  }
-
-  for (const item of report.skin_type_cautions) {
-    await execute(
-      `INSERT IGNORE INTO ingredient_effects
-         (id, scenario_kind, scenario, ingredient, relation, description, source)
-       VALUES (UUID(), 'skin_type', ?, ?, 'caution', ?, 'shelf_report')`,
-      [item.skin_type, item.ingredient, item.caution],
+       SELECT UUID(), LEAST(t.x, t.y), GREATEST(t.x, t.y), ?, ?, 'shelf_report'
+         FROM (SELECT CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci AS x,
+                      CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci AS y) AS t
+        WHERE t.x <> t.y
+          AND NOT EXISTS (
+                SELECT 1 FROM ingredient_pairs p
+                 WHERE p.ingredient_a = LEAST(t.x, t.y)
+                   AND p.ingredient_b = GREATEST(t.x, t.y))`,
+      [row.kind, row.description, row.a, row.b],
     );
   }
 }
@@ -274,13 +280,8 @@ export async function POST(request: Request) {
    * "분석하기" 버튼으로만). 기본은 **캐시 전용**: 지문이 맞는 캐시가 있으면 주고,
    * 없으면 `null` 을 준다 — 화면은 그걸 보고 버튼을 띄운다.
    */
-  let generate = false;
-  try {
-    const body = (await request.json()) as { generate?: unknown };
-    generate = body.generate === true;
-  } catch {
-    // 본문 없음 = 캐시 전용. 형식 오류로 400 을 줄 만큼 중요한 입력이 아니다.
-  }
+  // 본문 없음·객체 아님 = 캐시 전용. 형식 오류로 400 을 줄 만큼 중요한 입력이 아니다.
+  const generate = (await readJsonObject(request))?.generate === true;
 
   let shelf: ShelfItem[];
   try {
@@ -332,15 +333,9 @@ export async function POST(request: Request) {
    */
   if (!generate) return Response.json(null);
 
-  // 사용자당 동시 1건. 호출마다 claude 프로세스가 뜬다.
-  if (!acquire(userId)) {
-    return Response.json(
-      {
-        message: "이미 처리 중인 요청이 있습니다. 완료 후 다시 시도해 주세요.",
-      },
-      { status: 429 },
-    );
-  }
+  // 사용자당 동시 1건 + 전역 상한. 호출마다 claude 프로세스가 뜬다.
+  const busy = acquireOrBusy(userId);
+  if (busy) return busy;
 
   try {
     const raw = await runClaude(
@@ -352,7 +347,8 @@ export async function POST(request: Request) {
         })),
       }),
       // 도구를 주지 않는다(빈 배열이면 러너가 `--tools ""` 로 전부 끈다).
-      { timeoutMs: TIMEOUT_MS },
+      // 사용자가 떠나면(새로고침·탭 닫기) 자식을 죽여 가드를 푼다(3라운드 m3).
+      { timeoutMs: TIMEOUT_MS, signal: request.signal },
     );
 
     const parsed = parseJsonObject(raw) as Record<string, unknown>;

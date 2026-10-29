@@ -7,10 +7,11 @@
  * (옛 주석은 "도구를 안 쓰니 이미지가 안 남아 정리가 불필요하다"고 했는데 틀렸다 — 텍스트도 남는다.)
  */
 
-import { acquire, release } from "@/lib/ai/guard";
+import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { isStringArray, parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
+import { intInRange, LIMITS, readJsonObject, text } from "@/lib/db/input";
 import {
   buildRoutinePrompt,
   type RoutineProductInput,
@@ -47,11 +48,13 @@ function narrowStep(value: unknown): RawStep | null {
 
   return {
     routine_name: step.routine_name,
+    /*
+     * 프롬프트 계약은 "초 단위 int" 지만 LLM 은 음수·소수·거대값을 낼 수 있다.
+     * 저장(`PUT /api/routines`)은 범위 밖 값을 400 으로 거부하므로(m17) 여기서 0 으로
+     * 보정하지 않으면 90초 걸린 생성 결과가 저장에서 통째로 실패한다.
+     */
     estimated_time:
-      typeof step.estimated_time === "number" &&
-      Number.isFinite(step.estimated_time)
-        ? step.estimated_time
-        : 0,
+      intInRange(step.estimated_time, 0, LIMITS.estimatedTime) ?? 0,
     using_product: isStringArray(step.using_product) ? step.using_product : [],
     how_to_use: isStringArray(step.how_to_use) ? step.how_to_use : [],
     tips: isStringArray(step.tips) ? step.tips : [],
@@ -89,12 +92,6 @@ function warnOnRuleViolations(
     );
   }
 }
-
-type Body = {
-  wonder?: unknown;
-  usableTime?: unknown;
-  products?: unknown;
-};
 
 function narrowProducts(value: unknown): RoutineProductInput[] {
   if (!Array.isArray(value)) return [];
@@ -136,16 +133,10 @@ function narrowSummary(value: unknown): string | null {
 }
 
 export async function POST(request: Request) {
-  // 사용자당 동시 1건. 루틴 생성은 90초짜리 claude 프로세스라 특히 중복 실행 비용이 크다.
+  // 사용자당 동시 1건 + 전역 상한. 루틴 생성은 90초짜리 claude 프로세스라 특히 중복 실행 비용이 크다.
   const userId = await currentUserId();
-  if (!acquire(userId)) {
-    return Response.json(
-      {
-        message: "이미 처리 중인 요청이 있습니다. 완료 후 다시 시도해 주세요.",
-      },
-      { status: 429 },
-    );
-  }
+  const busy = acquireOrBusy(userId);
+  if (busy) return busy;
 
   try {
     // content-length 가 없는 요청은 검사 없이 통과시킨다(흔치 않고, 다른 방어가 남아 있다).
@@ -157,30 +148,34 @@ export async function POST(request: Request) {
       );
     }
 
-    let body: Body;
-    try {
-      body = (await request.json()) as Body;
-    } catch {
+    const body = await readJsonObject(request);
+    if (!body) {
       return Response.json(
-        { message: "JSON 본문이 아닙니다." },
+        { message: "JSON 객체 본문이 아닙니다." },
         { status: 400 },
       );
     }
 
-    const wonder = typeof body.wonder === "string" ? body.wonder.trim() : "";
+    /*
+     * 상한은 저장(`PUT /api/profile`)과 같다(m17) — 여기서 안 막으면 90초 생성이 끝난 뒤
+     * 프로필 저장이 400 으로 실패해 결과가 버려진다.
+     */
+    const wonder = text(body.wonder, LIMITS.wonder);
     if (!wonder) {
       return Response.json(
-        { message: "wonder 는 필수입니다." },
+        { message: `wonder 는 필수이고 ${LIMITS.wonder}자 이하여야 합니다.` },
         { status: 400 },
       );
     }
 
     const time = (body.usableTime ?? {}) as Record<string, unknown>;
-    const morning = typeof time.morning === "string" ? time.morning : "";
-    const evening = typeof time.evening === "string" ? time.evening : "";
+    const morning = text(time.morning, LIMITS.usableTime);
+    const evening = text(time.evening, LIMITS.usableTime);
     if (!morning || !evening) {
       return Response.json(
-        { message: "usableTime.morning 과 usableTime.evening 이 필요합니다." },
+        {
+          message: `usableTime.morning 과 usableTime.evening 이 필요합니다(${LIMITS.usableTime}자 이하).`,
+        },
         { status: 400 },
       );
     }
@@ -200,7 +195,8 @@ export async function POST(request: Request) {
           usableTime: { morning, evening },
           products,
         }),
-        { timeoutMs: TIMEOUT_MS },
+        // 사용자가 떠나면(새로고침·탭 닫기) 자식을 죽여 가드를 바로 푼다(m3).
+        { timeoutMs: TIMEOUT_MS, signal: request.signal },
       );
 
       const parsed = parseJsonObject(raw) as Record<string, unknown>;

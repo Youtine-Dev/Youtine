@@ -6,10 +6,11 @@
  * 웹 검색을 켜도 모델이 도구를 호출하지 않는다는 실측이 근거다.
  */
 
-import { acquire, release } from "@/lib/ai/guard";
+import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
+import { readJsonObject } from "@/lib/db/input";
 import { execute, selectRows } from "@/lib/db/pool";
 import {
   buildConcernIngredientsPrompt,
@@ -103,11 +104,12 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { wonder?: unknown };
-  try {
-    body = (await request.json()) as { wonder?: unknown };
-  } catch {
-    return Response.json({ message: "JSON 본문이 아닙니다." }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return Response.json(
+      { message: "JSON 객체 본문이 아닙니다." },
+      { status: 400 },
+    );
   }
 
   const wonder = typeof body.wonder === "string" ? body.wonder.trim() : "";
@@ -136,21 +138,17 @@ export async function POST(request: Request) {
     console.warn("[api/ai/concern] 캐시 조회 실패, AI 로 진행:", error);
   }
 
-  // 사용자당 동시 1건. 호출마다 claude 프로세스가 뜬다.
-  if (!acquire(userId)) {
-    return Response.json(
-      {
-        message: "이미 처리 중인 요청이 있습니다. 완료 후 다시 시도해 주세요.",
-      },
-      { status: 429 },
-    );
-  }
+  // 사용자당 동시 1건 + 전역 상한. 호출마다 claude 프로세스가 뜬다.
+  const busy = acquireOrBusy(userId);
+  if (busy) return busy;
 
   try {
     try {
       const raw = await runClaude(buildConcernIngredientsPrompt({ wonder }), {
         // 도구를 주지 않는다(Q3). 빈 배열이면 러너가 `--tools ""` 로 전부 끈다.
         timeoutMs: TIMEOUT_MS,
+        // 사용자가 떠나면(새로고침·탭 닫기) 자식을 죽여 가드를 바로 푼다(3라운드 m3).
+        signal: request.signal,
       });
 
       const parsed = parseJsonObject(raw) as Record<string, unknown>;

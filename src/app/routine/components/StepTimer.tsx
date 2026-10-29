@@ -39,6 +39,11 @@ export function StepTimer({
       if (remain <= 0) {
         setLeft(0);
         setStartedAt(null);
+        // 젖은 손·시선은 거울 — 화면 밖 신호도 준다(I11). iOS Safari 엔 vibrate 가 없다.
+        // 사용자가 아직 탭하지 않은 문서에서 부르면 Chrome 이 막고 콘솔 error 를 남긴다(새로고침 직후 등).
+        if ("vibrate" in navigator && navigator.userActivation?.hasBeenActive) {
+          navigator.vibrate([200, 100, 200]);
+        }
         return;
       }
       setLeft(remain);
@@ -57,34 +62,40 @@ export function StepTimer({
       : "일시정지됨 — 탭하면 계속";
 
   return (
-    <button
-      type="button"
-      className={[
-        styles.timer,
-        onPhoto ? styles.onPhoto : "",
-        finished ? styles.finished : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      onClick={() => {
-        if (finished) {
-          setLeft(seconds);
-          setBase(seconds);
+    <>
+      <button
+        type="button"
+        className={[
+          styles.timer,
+          onPhoto ? styles.onPhoto : "",
+          finished ? styles.finished : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        onClick={() => {
+          if (finished) {
+            setLeft(seconds);
+            setBase(seconds);
+            setStartedAt(Date.now());
+            return;
+          }
+          if (running) {
+            // 일시정지 — 지금까지의 경과를 남은 초로 굳혀 둔다
+            setBase(left);
+            setStartedAt(null);
+            return;
+          }
           setStartedAt(Date.now());
-          return;
-        }
-        if (running) {
-          // 일시정지 — 지금까지의 경과를 남은 초로 굳혀 둔다
-          setBase(left);
-          setStartedAt(null);
-          return;
-        }
-        setStartedAt(Date.now());
-      }}
-      aria-label={`남은 시간 ${format(left)} — ${hint}`}
-    >
-      <span className={styles.time}>{format(left)}</span>
-      <span className={styles.hint}>{hint}</span>
-    </button>
+        }}
+        aria-label={`남은 시간 ${format(left)} — ${hint}`}
+      >
+        <span className={styles.time}>{format(left)}</span>
+        <span className={styles.hint}>{hint}</span>
+      </button>
+      {/* 처음부터 빈 채로 있어야 내용이 바뀔 때 스크린리더가 읽는다. */}
+      <span className={styles.srOnly} role="status">
+        {finished ? "타이머가 끝났어요. 다음 단계로 넘어가세요." : ""}
+      </span>
+    </>
   );
 }

@@ -57,6 +57,11 @@
   text-transform: uppercase;
 }
 
+/* 단위처럼 대소문자가 뜻인 라벨 — "mL" 이 "ML" 로 보이면 안 된다(m33). */
+.labelAsIs {
+  text-transform: none;
+}
+
 .required {
   padding: 2px 6px;
   border-radius: var(--radius-full);
@@ -88,7 +93,8 @@
 }
 
 .input::placeholder {
-  color: var(--outline);
+  /* --outline 은 라이트에서 입력 배경 대비 4.06:1 — 4.5 미달(3라운드 m32). */
+  color: var(--on-surface-variant);
 }
 
 .input:focus-visible {

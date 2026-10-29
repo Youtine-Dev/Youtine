@@ -30,7 +30,8 @@
 }
 
 .input::placeholder {
-  color: var(--outline);
+  /* --outline 은 라이트에서 입력 배경 대비 4.06:1 — 4.5 미달(3라운드 m32). */
+  color: var(--on-surface-variant);
 }
 
 .input:focus {

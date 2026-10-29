@@ -67,6 +67,25 @@ export async function GET(request: Request) {
       });
     }
 
+    /*
+     * 같은 파트너는 한 번만, 시너지·충돌 양쪽에 있으면 **충돌만**(3라운드 M7 — 안전 우선).
+     * 수확이 막아도 예전에 쌓인 행·표기만 다른 행("Glycolic Acid"/"글라이콜릭애씨드")이 남아 있다.
+     */
+    const uniqueByPartner = (list: typeof conflicts) =>
+      list.filter(
+        (item, index) =>
+          list.findIndex((other) =>
+            sameIngredient(other.partner, item.partner),
+          ) === index,
+      );
+    const safeConflicts = uniqueByPartner(conflicts);
+    const safeSynergies = uniqueByPartner(synergies).filter(
+      (item) =>
+        !safeConflicts.some((conflict) =>
+          sameIngredient(conflict.partner, item.partner),
+        ),
+    );
+
     const helps: {
       scenario: string;
       description: string;
@@ -97,7 +116,13 @@ export async function GET(request: Request) {
      * ⭐ 전부 비어 있어도 200 이다 — "아직 이 성분에 대한 지식이 없다"는 정상 상태다.
      *    지식 베이스는 시드 + 리포트 수확으로 자라므로 화면이 그렇게 안내한다.
      */
-    return Response.json({ name, helps, typeCautions, synergies, conflicts });
+    return Response.json({
+      name,
+      helps,
+      typeCautions,
+      synergies: safeSynergies,
+      conflicts: safeConflicts,
+    });
   } catch (error) {
     return dbErrorResponse("api/knowledge/ingredient GET", error);
   }

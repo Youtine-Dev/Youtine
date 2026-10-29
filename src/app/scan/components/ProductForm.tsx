@@ -83,6 +83,7 @@ export function ProductForm({
     found,
     saved,
     shelfCount,
+    extractStartedAt,
     search,
     selectCandidate,
     registerTypedName,
@@ -198,6 +199,7 @@ export function ProductForm({
           result={found}
           saved={saved}
           shelfCount={shelfCount}
+          extractStartedAt={extractStartedAt}
           error={error}
           onSelect={selectCandidate}
           typedName={productName}
@@ -251,8 +253,16 @@ export function ProductForm({
 
         <div className={styles.row}>
           <div className={styles.field}>
-            <label className={styles.label} htmlFor={capacityId}>
-              용량 (mL)
+            {/*
+              용량은 저장하지 않는다(컬럼 없음) — 성분 검색의 동명 제품 구분에만 쓴다(I12).
+              라벨이 그 사실을 말해야 "저장했는데 안 보인다"가 안 생긴다.
+              대문자 변환을 끈다 — 안 끄면 "mL" 이 "ML" 로 보인다(m33).
+            */}
+            <label
+              className={`${styles.label} ${styles.labelAsIs}`}
+              htmlFor={capacityId}
+            >
+              용량 (mL · 검색용)
             </label>
             <input
               id={capacityId}

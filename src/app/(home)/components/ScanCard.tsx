@@ -12,7 +12,7 @@ export function ScanCard() {
         <div className={styles.badge}>
           <Icon name="center_focus_strong" filled />
         </div>
-        <h3 className={styles.heading}>제품 성분 스캔</h3>
+        <h2 className={styles.heading}>제품 성분 스캔</h2>
         <p className={styles.description}>
           성분과 조합 궁합을 바로 분석해 드려요.
         </p>

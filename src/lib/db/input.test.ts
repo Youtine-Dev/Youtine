@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { intInRange, isoDate, optionalText, text, textArray } from "./input";
+import {
+  intInRange,
+  isoDate,
+  optionalText,
+  readJsonObject,
+  text,
+  textArray,
+} from "./input";
 
 /**
  * 여기는 **신뢰 경계**다. 이 함수들이 통과시킨 값이 그대로 DB 로 간다.
@@ -100,5 +107,30 @@ describe("isoDate", () => {
   it("날짜가 아닌 문자열을 막는다", () => {
     expect(isoDate("언젠가")).toBeNull();
     expect(isoDate(20260819)).toBeNull();
+  });
+});
+
+describe("textArray 공백 항목", () => {
+  it("공백뿐인 항목은 버리고 나머지는 trim 한다", () => {
+    // `[" "]` 가 "성분을 가져왔다"로 통과해 공유 카탈로그를 덮던 경로(3라운드 M2).
+    expect(
+      textArray([" ", " 정제수 "], { maxItems: 5, maxLength: 10 }),
+    ).toEqual(["정제수"]);
+  });
+});
+
+describe("readJsonObject", () => {
+  const req = (body: string) =>
+    new Request("http://local/api", { method: "POST", body });
+
+  it("JSON 객체만 받는다", async () => {
+    expect(await readJsonObject(req('{"a":1}'))).toEqual({ a: 1 });
+  });
+
+  it("null·배열·원시값·깨진 JSON 은 null — 500 대신 400 으로 가게 한다", async () => {
+    // 3라운드 m1: `null` 본문이 `as Body` 를 통과해 라우트 12곳이 500 을 냈다.
+    for (const body of ["null", "[1]", "3", '"x"', "{"]) {
+      expect(await readJsonObject(req(body))).toBeNull();
+    }
   });
 });

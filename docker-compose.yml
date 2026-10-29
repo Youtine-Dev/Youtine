@@ -52,9 +52,15 @@ services:
         condition: service_healthy
 
   db:
-    # 서버에 이미 있는 이미지(11.3.2)를 그대로 쓴다.
-    # ponytail: 디스크가 91% 라 pull 을 막아 둔다. 버전 태그 고정은 CI/CD 붙일 때.
-    image: mariadb:latest
+    # 서버에 이미 있는 이미지(11.3.2)를 버전 태그로 고정한다(3라운드 I7) — `latest` 는
+    # 이미지가 지워지거나 다른 호스트로 옮길 때 통제 없이 메이저 버전이 뛴다.
+    # 디스크가 91% 라 pull 은 여전히 막아 둔다(pull_policy: missing — 로컬에 있으면 안 받는다).
+    # ⚠️ 서버 사본을 갱신하기 **전에** 서버에서 한 번:
+    #      docker image inspect mariadb:latest --format '{{.Config.Env}}'   # MARIADB_VERSION 이 11.3.2 인지 확인
+    #      docker tag mariadb:latest mariadb:11.3.2
+    #    태그가 없으면 missing 정책이 11.3.2 를 새로 내려받는다. 이미지 이름이 바뀌어 db 컨테이너는
+    #    한 번 재생성된다(데이터는 db-data 볼륨이라 유지).
+    image: mariadb:11.3.2
     pull_policy: missing
     container_name: al-front-db
     restart: unless-stopped

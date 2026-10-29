@@ -6,10 +6,7 @@
  *    사용자가 직접 찍은 사진(`thumbnail`)만 개인 것이라 `shelf_items` 에 둔다.
  */
 
-import {
-  enqueueWarningsGeneration,
-  NO_INGREDIENTS_WARNING,
-} from "@/lib/ai/warningsQueue";
+import { enqueueWarningsGeneration } from "@/lib/ai/warningsQueue";
 import { currentUserId } from "@/lib/auth/anonUser";
 import {
   dbErrorResponse,
@@ -18,9 +15,16 @@ import {
   selectRows,
   withTransaction,
 } from "@/lib/db/pool";
-import { LIMITS, text, textArray } from "@/lib/db/input";
+import {
+  LIMITS,
+  optionalText,
+  readJsonObject,
+  text,
+  textArray,
+} from "@/lib/db/input";
 import { toProduct } from "@/lib/db/rows";
-import { fetchImageAsDataUrl } from "@/lib/images";
+import { fetchImageAsDataUrl, shrinkLargeImages } from "@/lib/images";
+import { NO_INGREDIENTS_WARNING } from "@/lib/warnings";
 
 // mysql2 는 Node API 를 쓴다. Edge 런타임에서는 동작하지 않는다.
 export const runtime = "nodejs";
@@ -44,6 +48,7 @@ export async function GET() {
      * NULL 로 고착돼 홈이 영구 "분석 중"이 된다. 조회 때마다 밀린 행을 다시 태운다.
      * 큐의 Set 이 대기·실행 중 id 를 걸러 멱등이고, 응답을 기다리지 않는다(등록 UX 와 동일).
      */
+    shrinkLargeImages(products);
     for (const p of products) {
       if (p.warnings !== undefined) continue;
       if (p.ingredients.length === 0) {
@@ -73,26 +78,41 @@ export async function GET() {
   }
 }
 
-type Body = {
-  productName?: unknown;
-  productCompany?: unknown;
-  category?: unknown;
-  ingredients?: unknown;
-  thumbnail?: unknown;
-  /** 검색 결과에서 온 외부 이미지 주소. 서버가 받아서 data URL 로 바꾼다. */
-  thumbnailUrl?: unknown;
-  ingredientSource?: unknown;
-};
+/**
+ * `ingredient_source` 값 — **신뢰 등급 오름차순**(사용자 결정 Q3: photo > 공식몰 등 정형 출처 >
+ * AI 웹 추정 > 수동). 배열 위치가 곧 등급이다. NOT NULL 이라 화면이 출처를 표시한다.
+ */
+const SOURCES = ["manual", "fallback", "hwahae", "photo"];
 
-/** `ingredient_source` 는 NOT NULL 이다. 화면이 출처를 표시해야 해서 비워 둘 수 없다. */
-const SOURCES = ["photo", "hwahae", "fallback", "manual"];
+/**
+ * 공유 카탈로그의 성분을 이 등록으로 덮는가(3라운드 M2).
+ *
+ * 로그인이 없어 쿠키만 있으면 누구나 POST 한다. 예전엔 무조건 덮어서 남의 사진 성분 10종이
+ * `["물"]`(manual) 한 줄로 바뀌었고, 그 제품을 담은 **모든 사용자**의 충돌 검사가 그걸로 돌았다.
+ * 비었으면 채우고, 등급이 높으면 덮고, 같으면 항목이 더 많을 때만 덮는다.
+ * ⚠️ 출처는 클라이언트가 말한 값이다 — 재담기·실수에 의한 하향은 막지만 거짓 'photo' 는 못 막는다.
+ */
+function shouldReplaceIngredients(
+  current: { ingredients: readonly string[]; source: string },
+  incoming: { ingredients: readonly string[]; source: string },
+): boolean {
+  // 빈 배열로 덮으면 남이 추출해 둔 성분이 사라진다.
+  if (incoming.ingredients.length === 0) return false;
+  if (current.ingredients.length === 0) return true;
+
+  const currentRank = SOURCES.indexOf(current.source);
+  const incomingRank = SOURCES.indexOf(incoming.source);
+  if (incomingRank !== currentRank) return incomingRank > currentRank;
+  return incoming.ingredients.length > current.ingredients.length;
+}
 
 export async function POST(request: Request) {
-  let body: Body;
-  try {
-    body = (await request.json()) as Body;
-  } catch {
-    return Response.json({ message: "JSON 본문이 아닙니다." }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return Response.json(
+      { message: "JSON 객체 본문이 아닙니다." },
+      { status: 400 },
+    );
   }
 
   const productName = text(body.productName, LIMITS.productName);
@@ -119,7 +139,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const category = text(body.category, LIMITS.category) ?? "미분류";
+  // 없으면 "미분류". 있는데 문자열이 아니거나 너무 길면 400 — 조용히 바꿔 저장하지 않는다(m17).
+  const categoryInput = optionalText(body.category, LIMITS.category);
+  if (categoryInput === null) {
+    return Response.json(
+      { message: `category 는 ${LIMITS.category}자 이하 문자열이어야 합니다.` },
+      { status: 400 },
+    );
+  }
+  const category = categoryInput ?? "미분류";
 
   // 빈 배열은 정상이다(프롬프트 규칙: 확신 없으면 []). 실패로 바꾸지 않는다.
   const ingredients = textArray(body.ingredients ?? [], {
@@ -203,22 +231,42 @@ export async function POST(request: Request) {
         ],
       );
 
+      // FOR UPDATE — 같은 제품의 동시 등록이 서로 낡은 값을 보고 비교·덮어쓰지 않게 잠근다.
       const [found] = await conn.execute(
-        `SELECT id FROM products WHERE name = ? AND brand = ?`,
+        `SELECT id, ingredients, ingredient_source FROM products
+          WHERE name = ? AND brand = ? FOR UPDATE`,
         [productName, brand],
       );
-      const row = Array.isArray(found) ? found[0] : undefined;
-      const id =
-        typeof row === "object" && row !== null && "id" in row
-          ? String(row.id)
+      const row: unknown = Array.isArray(found) ? found[0] : undefined;
+      // JSON(=LONGTEXT) 컬럼이 문자열·배열 어느 쪽으로 와도 되게 rows.ts 의 좁히기를 쓴다.
+      const current = toProduct(row);
+      if (!current) {
+        throw new Error("UPSERT 직후 products 행을 찾지 못했습니다.");
+      }
+      const id = current.id;
+      const currentSource =
+        typeof row === "object" && row !== null && "ingredient_source" in row
+          ? String(row.ingredient_source)
           : "";
-      if (!id) throw new Error("UPSERT 직후 products 행을 찾지 못했습니다.");
 
-      // 성분을 실제로 가져왔을 때만 갱신한다. 빈 배열로 덮으면 남이 추출해 둔 성분이 사라진다.
-      if (ingredients.length > 0) {
+      if (
+        shouldReplaceIngredients(
+          { ingredients: current.ingredients, source: currentSource },
+          { ingredients, source },
+        )
+      ) {
+        /*
+         * 성분이 실제로 바뀌면 주의사항도 낡는다(3라운드 M9) — 같은 문장에서 NULL 로 비운다.
+         * 그러면 아래 등록 경로와 GET 재큐잉이 새 성분으로 다시 만든다. 예전엔 성분 없이
+         * 등록될 때 저장된 "성분 정보 부족" 문구가 성분이 채워진 뒤에도 모두에게 영구히 남았다.
+         */
+        const changed =
+          JSON.stringify(ingredients) !== JSON.stringify(current.ingredients);
         await conn.execute(
           `UPDATE products
-              SET category = ?, ingredients = ?, ingredient_source = ?
+              SET category = ?, ingredients = ?, ingredient_source = ?${
+                changed ? ", warnings = NULL" : ""
+              }
             WHERE id = ?`,
           [category, JSON.stringify(ingredients), source, id],
         );
@@ -299,11 +347,12 @@ export async function POST(request: Request) {
  *    속성이라 의도된 동작이다.
  */
 export async function PATCH(request: Request) {
-  let body: { id?: unknown; warnings?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown; warnings?: unknown };
-  } catch {
-    return Response.json({ message: "JSON 본문이 아닙니다." }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return Response.json(
+      { message: "JSON 객체 본문이 아닙니다." },
+      { status: 400 },
+    );
   }
 
   const id = typeof body.id === "string" ? body.id : "";

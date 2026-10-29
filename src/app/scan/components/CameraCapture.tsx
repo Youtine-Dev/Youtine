@@ -54,6 +54,31 @@ const VIDEO_CONSTRAINTS: MediaStreamConstraints = {
   audio: false,
 };
 
+/**
+ * 카메라 실패를 사람 말로(I17). 예전엔 `NotAllowedError: Permission denied` 같은 기술 문자열을
+ * 그대로 띄웠다. 어느 경우든 폼의 파일 선택이 대안이라 그 길을 함께 알린다.
+ */
+function cameraErrorMessage(cause: unknown): string {
+  const name = cause instanceof Error ? cause.name : "";
+  // 비보안 컨텍스트(LAN IP 의 http)에선 navigator.mediaDevices 자체가 없다(m22).
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    return "이 주소에서는 카메라를 쓸 수 없어요(보안 연결 필요). 닫고 사진 파일을 선택해 주세요.";
+  }
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "카메라 권한이 꺼져 있어요. 브라우저 설정에서 카메라를 허용하거나, 닫고 사진 파일을 선택해 주세요.";
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "사용할 수 있는 카메라를 찾지 못했어요. 닫고 사진 파일을 선택해 주세요.";
+    case "NotReadableError":
+    case "AbortError":
+      return "다른 앱이 카메라를 쓰고 있어요. 그 앱을 닫고 다시 열거나, 사진 파일을 선택해 주세요.";
+    default:
+      return "카메라를 열지 못했어요. 닫고 사진 파일을 선택해 주세요.";
+  }
+}
+
 export function CameraCapture({
   mode,
   onCapture,
@@ -77,8 +102,13 @@ export function CameraCapture({
     let stream: MediaStream | null = null;
     let cancelled = false;
 
-    navigator.mediaDevices
-      .getUserMedia(VIDEO_CONSTRAINTS)
+    /*
+     * Promise.resolve().then 으로 감싸는 이유(m22): 비보안 컨텍스트에선 `navigator.mediaDevices`
+     * 가 undefined 라 **동기 TypeError** 가 나는데, 이펙트 본문에서 던지면 스캔 화면 전체가
+     * error.tsx 로 바뀐다. 체인 안에서 던지면 아래 catch 가 안내로 바꾼다.
+     */
+    Promise.resolve()
+      .then(() => navigator.mediaDevices.getUserMedia(VIDEO_CONSTRAINTS))
       .then((granted) => {
         if (cancelled) {
           granted.getTracks().forEach((track) => track.stop());
@@ -88,16 +118,9 @@ export function CameraCapture({
         if (videoRef.current) videoRef.current.srcObject = granted;
       })
       .catch((cause: unknown) => {
-        // 실패 원인이 여러 가지라 name 까지 봐야 구분된다.
-        // NotAllowedError: 권한 거부 또는 Permissions-Policy 차단
-        // NotFoundError: 카메라 없음 / NotReadableError: 다른 앱이 점유 중
-        const name = cause instanceof Error ? cause.name : "";
-        const detail = cause instanceof Error ? cause.message : String(cause);
-        setError(
-          window.isSecureContext
-            ? `${name}: ${detail}`
-            : `${name}: ${detail} — 현재 주소(${window.location.origin})는 보안 컨텍스트가 아닙니다. HTTPS 또는 localhost 로 접속하세요.`,
-        );
+        // 원문은 개발자용으로만 남긴다 — 화면엔 이름별 한글 안내.
+        console.warn("[CameraCapture] getUserMedia 실패:", cause);
+        setError(cameraErrorMessage(cause));
       });
 
     return () => {

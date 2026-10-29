@@ -1,12 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
-import { addProduct } from "@/lib/data";
+import { addProduct, removeProduct, useProducts } from "@/lib/data";
 import { stepIcon } from "@/lib/stepIcon";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { useModalFocus } from "@/lib/useModalFocus";
+import { realWarnings } from "@/lib/warnings";
 import type { Product } from "@/types/skincare";
 
 import { toMessage } from "../hooks/useProductRegister";
@@ -24,7 +26,10 @@ import styles from "./productModal.module.css";
  * `/api/products/popular` 참조). **내 선반에서 열면** thumbnail 이 내 사진이고 나만 보는
  * 문맥이므로 그걸 우선한다.
  *
- * @param alreadyOnShelf 내 선반에서 연 경우. "선반에 추가하기"가 무의미하므로 숨긴다.
+ * 선반 소유 여부는 **내 선반 목록으로 직접 판정한다**(m33) — 인기·성분별 제품처럼 선반 밖에서
+ * 열어도 이미 담긴 제품이면 "선반에 추가하기"(눌러도 변화 0) 대신 그 사실과 빼기(I1)를 보여 준다.
+ *
+ * @param alreadyOnShelf 내 선반에서 연 경우. 목록 판정과 OR — 목록 로딩 전에도 확실한 문맥이다.
  */
 export function PopularProductModal({
   product,
@@ -35,26 +40,41 @@ export function PopularProductModal({
   onClose: () => void;
   alreadyOnShelf?: boolean;
 }) {
-  const [saving, setSaving] = useState(false);
+  /** 진행 중인 쓰기. 빼기 직후 목록이 먼저 갱신돼도 "담는 중"으로 보이지 않게 종류를 구분한다. */
+  const [pending, setPending] = useState<"add" | "remove" | null>(null);
   const [saved, setSaved] = useState(false);
+  /** 빼기 확인 1단계 — 실수 한 번에 선반이 바뀌지 않게. */
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const shelf = useProducts();
 
   // 모달 뒤 화면이 스크롤되면 안 된다(사용자 요청 2026-08-20).
   useBodyScrollLock();
+  // 열리면 포커스를 안으로 — 안 그러면 Tab 이 배경 카드로 가 키보드로 닫기에 닿지 못한다(m31).
+  useModalFocus(dialogRef);
 
   const image = product.thumbnail || product.image;
+  // 선반 항목의 id 는 카탈로그 id 다(`GET /api/products` 가 p.id 를 준다).
+  const onShelf =
+    alreadyOnShelf ||
+    pending === "remove" ||
+    shelf.value.some((item) => item.id === product.id);
+  // "성분 정보 부족" 안내는 주의사항이 아니다 — 성분 없음은 위의 빈 성분 문구가 이미 말한다(m27).
+  const warnings = realWarnings(product.warnings ?? []);
 
   // Esc 로 닫기 — 오버레이라 브라우저 뒤로가기가 닫아 주지 않는다.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !saving) onClose();
+      if (event.key === "Escape" && !pending) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, saving]);
+  }, [onClose, pending]);
 
   async function handleAdd() {
-    setSaving(true);
+    setPending("add");
     setError(null);
     try {
       /*
@@ -76,12 +96,27 @@ export function PopularProductModal({
        */
       setError(toMessage(cause, "선반에 담지 못했어요"));
     } finally {
-      setSaving(false);
+      setPending(null);
+    }
+  }
+
+  /** 선반에서만 뺀다(I1). 공유 카탈로그의 제품은 남는다 — 다시 담을 수 있다. */
+  async function handleRemove() {
+    setPending("remove");
+    setError(null);
+    try {
+      await removeProduct({ id: product.id });
+      // 뺀 제품의 상세를 띄워 둘 이유가 없다 — 선반에서 열었다면 그 카드도 이미 사라졌다.
+      onClose();
+    } catch (cause: unknown) {
+      setError(toMessage(cause, "선반에서 빼지 못했어요"));
+      setPending(null);
     }
   }
 
   return (
     <div
+      ref={dialogRef}
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
@@ -94,7 +129,7 @@ export function PopularProductModal({
             type="button"
             className={styles.close}
             onClick={onClose}
-            disabled={saving}
+            disabled={pending !== null}
             aria-label="닫기"
           >
             <Icon name="close" />
@@ -104,7 +139,8 @@ export function PopularProductModal({
         <div className={styles.body}>
           <div className={styles.head}>
             <span className={styles.thumb}>
-              {image ? (
+              {/* 깨진 이미지면 카테고리 아이콘으로(m34, ProductCard 와 같은 방식). */}
+              {image && image !== brokenSrc ? (
                 <Image
                   src={image}
                   alt=""
@@ -112,6 +148,7 @@ export function PopularProductModal({
                   height={112}
                   unoptimized
                   className={styles.thumbImg}
+                  onError={() => setBrokenSrc(image)}
                 />
               ) : (
                 <Icon name={stepIcon(product.category)} filled />
@@ -154,11 +191,11 @@ export function PopularProductModal({
           )}
 
           {/* 주의사항은 지연 생성이라 아직 없을 수 있다. 있을 때만 보여 준다. */}
-          {product.warnings && product.warnings.length > 0 && (
+          {warnings.length > 0 && (
             <>
               <h3 className={styles.sectionTitle}>주의사항</h3>
               <ul className={styles.warnings}>
-                {product.warnings.map((warning) => (
+                {warnings.map((warning) => (
                   <li key={warning} className={styles.warning}>
                     <Icon name="warning" size="sm" />
                     {warning}
@@ -169,31 +206,80 @@ export function PopularProductModal({
           )}
         </div>
 
-        {/* 내 선반에서 열었으면 담기 버튼이 무의미하다 — 푸터를 통째로 뺀다(닫기는 X). */}
-        {alreadyOnShelf ? null : (
-          <div className={styles.footer}>
-            {error && (
-              <p className={styles.error} role="alert">
-                <Icon name="error" size="sm" />
-                {error}
-              </p>
-            )}
+        <div className={styles.footer}>
+          {error && (
+            <p className={styles.error} role="alert">
+              <Icon name="error" size="sm" />
+              {error}
+            </p>
+          )}
 
+          {saved ? (
+            <button type="button" className={styles.submit} onClick={onClose}>
+              <Icon name="check_circle" filled />
+              선반에 담았어요
+            </button>
+          ) : onShelf ? (
+            /*
+             * 이미 담긴 제품 — 담기 대신 그 사실과 빼기(I1).
+             * 빼기 버튼은 확인 전후로 **같은 자리의 같은 요소**다. 바꿔 끼우면 누른 순간
+             * 포커스가 body 로 빠진다(키보드 사용자는 확인 버튼을 다시 찾아야 한다).
+             */
+            <>
+              <p className={styles.shelfNote} aria-live="polite">
+                <Icon name="inventory_2" size="sm" />
+                {confirmingRemove
+                  ? "선반에서 뺄까요? 리포트 분석에서도 빠지고, 나중에 다시 담을 수 있어요."
+                  : "이미 내 선반에 있어요"}
+              </p>
+              <button
+                type="button"
+                className={
+                  confirmingRemove
+                    ? `${styles.secondary} ${styles.danger}`
+                    : styles.secondary
+                }
+                onClick={
+                  confirmingRemove
+                    ? handleRemove
+                    : () => setConfirmingRemove(true)
+                }
+                disabled={pending !== null}
+              >
+                {pending === "remove" ? (
+                  <>
+                    <Icon name="progress_activity" className={styles.spinner} />
+                    빼는 중…
+                  </>
+                ) : (
+                  <>
+                    <Icon name="delete" />
+                    {confirmingRemove ? "네, 선반에서 빼기" : "선반에서 빼기"}
+                  </>
+                )}
+              </button>
+              {confirmingRemove && (
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  onClick={() => setConfirmingRemove(false)}
+                  disabled={pending !== null}
+                >
+                  취소
+                </button>
+              )}
+            </>
+          ) : (
             <button
               type="button"
               className={styles.submit}
-              onClick={saved ? onClose : handleAdd}
-              disabled={saving}
+              onClick={handleAdd}
+              disabled={pending !== null}
             >
-              {saving ? (
+              {pending === "add" ? (
                 <>
                   <Icon name="progress_activity" className={styles.spinner} />
                   담는 중…
-                </>
-              ) : saved ? (
-                <>
-                  <Icon name="check_circle" filled />
-                  선반에 담았어요
                 </>
               ) : (
                 <>
@@ -202,8 +288,8 @@ export function PopularProductModal({
                 </>
               )}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

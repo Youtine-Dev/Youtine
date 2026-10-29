@@ -6,10 +6,6 @@
   margin-bottom: 24px;
 }
 
-.info {
-  color: var(--outline);
-}
-
 .list {
   display: flex;
   flex-direction: column;

@@ -8,6 +8,7 @@ import { YoutineIcon } from "@/components/YoutineIcon";
 import { load, remove, save } from "@/lib/storage/local";
 import { useStored } from "@/lib/storage/useStored";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { useModalFocus } from "@/lib/useModalFocus";
 
 import styles from "./TopAppBar.module.css";
 
@@ -33,17 +34,25 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: string }[] = [
  * (세션 중 OS 설정이 또 바뀌는 경우는 다음 로드에서 부트스트랩이 따라간다).
  */
 function applyTheme(mode: ThemeMode) {
+  const root = document.documentElement;
   if (mode === "system") {
     remove(THEME_KEY);
-    document.documentElement.dataset.theme = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    ).matches
+    root.dataset.theme = window.matchMedia("(prefers-color-scheme: dark)")
+      .matches
       ? "dark"
       : "light";
-    return;
+  } else {
+    save(THEME_KEY, mode);
+    root.dataset.theme = mode;
   }
-  save(THEME_KEY, mode);
-  document.documentElement.dataset.theme = mode;
+  // 상태바 색도 수동 테마를 따른다(3라운드 m13) — layout.tsx 부트스트랩이 만든 하나뿐인
+  // theme-color 를 갱신한다. 값은 방금 바뀐 팔레트의 --surface 를 읽어 hex 이중 관리를 피한다.
+  document
+    .querySelector('meta[name="theme-color"]:not([media])')
+    ?.setAttribute(
+      "content",
+      getComputedStyle(root).getPropertyValue("--surface").trim(),
+    );
 }
 
 /** 설정 모달 — 이름·화면 모드. 스크림·Esc·포커스 규칙은 앱의 다른 모달과 동일. */
@@ -56,10 +65,10 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const theme = useStored<ThemeMode | null>(THEME_KEY, null);
   const mode: ThemeMode = theme.value ?? "system";
 
+  // 초기 포커스(닫기) · Tab 트랩 · 닫힐 때 톱니 버튼으로 복귀 — 공용 훅(3라운드 m31).
+  const sheetRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
+  useModalFocus(sheetRef, closeRef);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -75,8 +84,14 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="설정"
+      onClick={onClose}
     >
-      <div className={styles.sheet}>
+      {/* 시트 안쪽 클릭이 스크림으로 새어 닫히지 않게 막는다(IngredientDetailModal 과 같은 규칙) */}
+      <div
+        ref={sheetRef}
+        className={styles.sheet}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className={styles.sheetBar}>
           <p className={styles.sheetTitle}>설정</p>
           <button
@@ -142,11 +157,15 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** 홈·내 고민·루틴 상단 바 — 인사말(저장된 이름) + 설정(이름·화면 모드) 진입점. */
-export function TopAppBar() {
+/**
+ * 홈·스캔·내 고민·루틴 상단 바 — 인사말(저장된 이름) + 설정(이름·화면 모드) 진입점.
+ *
+ * @param title 페이지 주제. 화면에는 안 보이는 h1 로만 쓴다 — 예전엔 인사말이 네 페이지
+ *   공통 h1 이라 스크린리더 제목 목록이 전부 "안녕하세요"였다(3라운드 I14).
+ */
+export function TopAppBar({ title }: { title: string }) {
   const name = useStored<string>(NAME_KEY, "");
   const [open, setOpen] = useState(false);
-  const gearRef = useRef<HTMLButtonElement>(null);
 
   // 이름이 없으면 이름 없이 인사한다 — 가짜 이름("Glow")으로 개인화를 흉내 내지 않는다(P14).
   const trimmed = name.ready ? name.value.trim() : "";
@@ -154,17 +173,17 @@ export function TopAppBar() {
 
   return (
     <header className={styles.bar}>
+      <h1 className={styles.srOnly}>{title}</h1>
       {/* fixed 바는 좌우로 꽉 채우고, 내용만 여기서 --container-max 로 좁힌다(m25). */}
       <div className={styles.inner}>
         <div className={styles.identity}>
           <div className={styles.avatar} aria-hidden="true">
             <YoutineIcon size={40} />
           </div>
-          <h1 className={styles.title}>{greeting}</h1>
+          <p className={styles.title}>{greeting}</p>
         </div>
 
         <button
-          ref={gearRef}
           type="button"
           className={styles.gear}
           onClick={() => setOpen(true)}
@@ -180,12 +199,7 @@ export function TopAppBar() {
       */}
       {open &&
         createPortal(
-          <SettingsModal
-            onClose={() => {
-              setOpen(false);
-              gearRef.current?.focus();
-            }}
-          />,
+          <SettingsModal onClose={() => setOpen(false)} />,
           document.body,
         )}
     </header>

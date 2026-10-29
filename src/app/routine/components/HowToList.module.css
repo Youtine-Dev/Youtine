@@ -13,11 +13,13 @@
   color: var(--on-surface);
 }
 
+/* 항목 간격 20px 을 gap 대신 항목 위아래 패딩으로 옮겼다 — 보이는 간격은 같고(8+4+8),
+   1줄 항목의 누르는 영역이 28px → 44px 가 된다(m30). */
 .list {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding-top: 20px;
+  gap: 4px;
+  padding-top: 12px;
   list-style: none;
 }
 
@@ -26,6 +28,8 @@
   align-items: flex-start;
   gap: 16px;
   width: 100%;
+  min-height: 44px;
+  padding-block: 8px;
   text-align: left;
 }
 

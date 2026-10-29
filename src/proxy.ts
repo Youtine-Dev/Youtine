@@ -5,7 +5,7 @@
  * (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/middleware.md`).
  * 기능은 같고 파일명·export 이름만 달라졌다.
  *
- * 하는 일은 하나뿐이다: 쿠키가 없으면 익명 ID 를 발급하고, 그 값을 요청 헤더로 실어 보낸다.
+ * 하는 일은 하나뿐이다: 쿠키가 없거나 형식이 틀리면 익명 ID 를 발급하고, 그 값을 요청 헤더로 실어 보낸다.
  * DB 는 건드리지 않는다 — 여기서 쿼리하면 **모든 요청에 왕복이 하나 붙는다.**
  * `users` 행은 실제로 쓰기가 일어나는 Route Handler 가 지연 생성한다(`anonUser.ts` 참조).
  */
@@ -17,9 +17,18 @@ import { ANON_COOKIE, ANON_HEADER } from "@/lib/auth/anonUser";
 /** 1년. 쿠키를 지우면 다른 사용자가 되므로(복구 수단은 로그인이 있어야 성립) 넉넉히 잡는다. */
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
+/**
+ * `crypto.randomUUID()` 가 내는 모양(소문자 8-4-4-4-12)만 받는다(3라운드 m2).
+ * 예전엔 쿠키 값을 그대로 믿어서 빈 값은 재발급 없이 모든 API 가 영구 503,
+ * 37자↑는 `users.id CHAR(36)` 초과로 쓰기 503, `a` 같은 값은 그대로 `users` 에 들어갔다.
+ */
+const ANON_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export function proxy(request: NextRequest) {
   const existing = request.cookies.get(ANON_COOKIE)?.value;
-  const id = existing ?? crypto.randomUUID();
+  const id =
+    existing && ANON_ID.test(existing) ? existing : crypto.randomUUID();
 
   /*
    * 쿠키만 세팅하면 **이번 요청**의 Route Handler 는 값을 못 본다
@@ -47,8 +56,9 @@ export function proxy(request: NextRequest) {
     request.nextUrl.protocol === "https:" ||
     request.headers.get("x-forwarded-proto") === "https";
 
-  // 이미 있으면 다시 굽지 않는다 — 만료가 계속 밀리는 것을 원하면 여기서 갱신하면 된다.
-  if (!existing) {
+  // 유효한 쿠키가 있으면 다시 굽지 않는다 — 만료가 계속 밀리는 것을 원하면 여기서 갱신하면 된다.
+  // 없거나 형식이 틀렸으면 새 ID 로 덮는다(안 덮으면 다음 요청이 또 틀린 값을 보낸다).
+  if (id !== existing) {
     response.cookies.set({
       name: ANON_COOKIE,
       value: id,

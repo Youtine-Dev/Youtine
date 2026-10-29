@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { YoutineIcon } from "@/components/YoutineIcon";
 
-import { NAV_TABS, isImmersive } from "./tabs";
+import { NAV_TABS, isActiveTab, isImmersive } from "./tabs";
 import styles from "./SideNav.module.css";
 
 /**
@@ -34,7 +34,7 @@ export function SideNav() {
 
       <ul className={styles.list}>
         {NAV_TABS.map((tab) => {
-          const active = pathname === tab.href;
+          const active = isActiveTab(pathname, tab.href);
 
           return (
             <li key={tab.label}>

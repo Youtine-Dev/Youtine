@@ -21,7 +21,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className={styles.container}>
+    <main id="main" className={styles.container}>
       <h1 className={styles.title}>문제가 발생했습니다</h1>
       <p className={styles.description}>
         잠시 후 다시 시도해 주세요.

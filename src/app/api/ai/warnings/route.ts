@@ -3,10 +3,11 @@
  * 도구 없음. 제품 1개당 1회 호출이라 지연 생성으로 쓴다(등록 직후 대기시키지 않는다).
  */
 
-import { acquire, release } from "@/lib/ai/guard";
+import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { isStringArray, parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
+import { readJsonObject } from "@/lib/db/input";
 import { buildWarningsPrompt } from "@/lib/prompts/warnings";
 
 export const runtime = "nodejs";
@@ -19,23 +20,11 @@ const MAX_WARNINGS = 6;
 /** 텍스트뿐인 본문이라 이미지가 실리는 ingredients 보다 훨씬 작게 잡는다. */
 const MAX_BODY_BYTES = 256 * 1024;
 
-type Body = {
-  productName?: unknown;
-  category?: unknown;
-  ingredients?: unknown;
-};
-
 export async function POST(request: Request) {
-  // 사용자당 동시 1건. claude 프로세스 1개가 뜨는 비용이라 중복 실행을 막는다.
+  // 사용자당 동시 1건 + 전역 상한. claude 프로세스 1개가 뜨는 비용이라 중복 실행을 막는다.
   const userId = await currentUserId();
-  if (!acquire(userId)) {
-    return Response.json(
-      {
-        message: "이미 처리 중인 요청이 있습니다. 완료 후 다시 시도해 주세요.",
-      },
-      { status: 429 },
-    );
-  }
+  const busy = acquireOrBusy(userId);
+  if (busy) return busy;
 
   try {
     // content-length 가 없는 요청은 검사 없이 통과시킨다(흔치 않고, 다른 방어가 남아 있다).
@@ -47,12 +36,10 @@ export async function POST(request: Request) {
       );
     }
 
-    let body: Body;
-    try {
-      body = (await request.json()) as Body;
-    } catch {
+    const body = await readJsonObject(request);
+    if (!body) {
       return Response.json(
-        { message: "JSON 본문이 아닙니다." },
+        { message: "JSON 객체 본문이 아닙니다." },
         { status: 400 },
       );
     }
@@ -75,7 +62,8 @@ export async function POST(request: Request) {
           // 빈 배열도 정상 입력이다 — 프롬프트 규칙 6이 그 경우의 응답을 따로 정해 뒀다.
           ingredients: isStringArray(body.ingredients) ? body.ingredients : [],
         }),
-        { timeoutMs: TIMEOUT_MS },
+        // 요청이 끊기면 자식을 죽여 가드를 바로 푼다(m3).
+        { timeoutMs: TIMEOUT_MS, signal: request.signal },
       );
 
       const parsed = parseJsonObject(raw) as Record<string, unknown>;

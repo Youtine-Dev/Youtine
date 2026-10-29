@@ -1,6 +1,7 @@
 "use client";
 
 import { useProducts } from "@/lib/data";
+import { realWarnings } from "@/lib/warnings";
 import type { Product } from "@/types/skincare";
 
 export type IngredientAlertItem = {
@@ -16,9 +17,13 @@ export type IngredientAlertsState =
   | { kind: "no-warnings"; pendingCount: number }
   | { kind: "ready"; alerts: IngredientAlertItem[]; pendingCount: number };
 
+/**
+ * "성분 정보 부족" 고정 문구는 경고가 아니다 — 성분 0개 제품이 "주의" 알림으로 떴다(3라운드 m27).
+ * 그런 제품은 `no-warnings` 로 떨어진다(분석은 끝났으니 pending 도 아니다).
+ */
 function toAlerts(products: Product[]): IngredientAlertItem[] {
   return products.flatMap((product) =>
-    (product.warnings ?? []).map((warning, index) => ({
+    realWarnings(product.warnings ?? []).map((warning, index) => ({
       id: `${product.id}-${index}`,
       productName: product.productName,
       warning,

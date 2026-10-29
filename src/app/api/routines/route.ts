@@ -18,6 +18,7 @@ import {
   intInRange,
   LIMITS,
   optionalText,
+  readJsonObject,
   text,
   textArray,
 } from "@/lib/db/input";
@@ -30,8 +31,12 @@ export async function GET() {
     const userId = await currentUserId();
 
     const routineRows = await selectRows(
+      /*
+       * 한 번의 PUT 으로 아침·저녁이 같은 초에 저장되므로 created_at 만으로는 순서가
+       * 랜덤 UUID 순이 된다(m6). time_slot 은 ENUM('am','pm') 이라 정의 순 = 아침 먼저.
+       */
       `SELECT id, name, \`condition\`, time_slot, summary, created_at
-         FROM routines WHERE user_id = ? ORDER BY created_at`,
+         FROM routines WHERE user_id = ? ORDER BY created_at, time_slot, id`,
       [userId],
     );
     if (routineRows.length === 0) return Response.json([]);
@@ -81,6 +86,8 @@ type StepInput = {
   warning: string[];
 };
 type RoutineInput = {
+  /** 유지하고 싶은 기존 id. 서버가 소유를 확인한 뒤에만 쓴다(PUT 참조). */
+  id: string | undefined;
   name: string;
   condition: string;
   time: "am" | "pm";
@@ -106,6 +113,18 @@ function narrowStep(value: unknown): StepInput | null {
   const routineName = text(step.routineName, LIMITS.routineName);
   if (!routineName) return null;
 
+  /*
+   * 초 단위 정수다. 분으로 착각해 넣으면 타이머가 60배 틀어진다.
+   * 상한이 필요한 이유: 값 하나가 INT 범위를 넘으면 그 INSERT 가 죽고
+   * **트랜잭션 전체가 롤백돼 루틴이 한 벌도 저장되지 않는다.**
+   * 범위 밖·숫자 아님은 0 으로 바꾸지 않고 거부한다(m17) — 없을 때만 0 이다.
+   */
+  const estimatedTime =
+    step.estimatedTime === undefined
+      ? 0
+      : intInRange(step.estimatedTime, 0, LIMITS.estimatedTime);
+  if (estimatedTime === null) return null;
+
   const usingProduct = stepTexts(step.usingProduct);
   const howToUse = stepTexts(step.howToUse);
   const tips = stepTexts(step.tips);
@@ -114,12 +133,7 @@ function narrowStep(value: unknown): StepInput | null {
 
   return {
     routineName,
-    /*
-     * 초 단위 정수다. 분으로 착각해 넣으면 타이머가 60배 틀어진다.
-     * 상한이 필요한 이유: 값 하나가 INT 범위를 넘으면 그 INSERT 가 죽고
-     * **트랜잭션 전체가 롤백돼 루틴이 한 벌도 저장되지 않는다.**
-     */
-    estimatedTime: intInRange(step.estimatedTime, 0, LIMITS.estimatedTime) ?? 0,
+    estimatedTime,
     usingProduct,
     howToUse,
     tips,
@@ -145,10 +159,20 @@ function narrowRoutine(value: unknown, index: number): RoutineInput | string {
   /*
    * 단계 수 상한. 없으면 steps 를 수만 개 보내 트랜잭션이 사용자 행을 잡은 채
    * 수십 초를 왕복하고, `seq` 가 SMALLINT 라 32,767 을 넘는 순간 전체가 롤백된다.
+   * 0단계(배열 아님 포함)도 거부한다 — 수행할 게 없는 빈 카드가 저장됐다(m17).
    */
   const rawSteps = Array.isArray(routine.steps) ? routine.steps : [];
-  if (rawSteps.length > LIMITS.steps)
-    return `${nth}의 단계는 ${LIMITS.steps}개 이하여야 합니다.`;
+  if (rawSteps.length === 0 || rawSteps.length > LIMITS.steps)
+    return `${nth}의 단계는 1~${LIMITS.steps}개여야 합니다.`;
+
+  // 모르는 값을 "am" 으로 바꿔 저장하면 저녁 루틴이 아침에 뜬다(m17).
+  const time = routine.time;
+  if (time !== "am" && time !== "pm")
+    return `${nth}의 time 은 "am" 또는 "pm" 이어야 합니다.`;
+
+  // UUID 는 36자. 넘치는 값은 어차피 존재할 수 없는 id 다.
+  const id = optionalText(routine.id, 36);
+  if (id === null) return `${nth}의 id 형식이 올바르지 않습니다.`;
 
   /*
    * ⚠️ 길이를 넘긴 `condition` 을 "평소"로 떨어뜨리면 안 된다.
@@ -172,20 +196,22 @@ function narrowRoutine(value: unknown, index: number): RoutineInput | string {
   }
 
   return {
+    id,
     name,
     condition: condition ?? "평소",
-    time: routine.time === "pm" ? "pm" : "am",
+    time,
     summary: text(routine.summary, LIMITS.summary) ?? "",
     steps,
   };
 }
 
 export async function PUT(request: Request) {
-  let body: { routines?: unknown };
-  try {
-    body = (await request.json()) as { routines?: unknown };
-  } catch {
-    return Response.json({ message: "JSON 본문이 아닙니다." }, { status: 400 });
+  const body = await readJsonObject(request);
+  if (!body) {
+    return Response.json(
+      { message: "JSON 객체 본문이 아닙니다." },
+      { status: 400 },
+    );
   }
 
   if (!Array.isArray(body.routines)) {
@@ -230,7 +256,30 @@ export async function PUT(request: Request) {
     await withTransaction(async (conn) => {
       await ensureUser(userId, conn);
 
+      /*
+       * 교체되는 루틴의 id 는 **유지한다**(m7·I9). 수행 기록은 routine_id 로 이어지는데,
+       * 단계 편집이 id 를 재발급하면 편집 안 한 짝 루틴까지 오늘 완료·이번 주 달성률·
+       * 기록 이름이 끊겼다. 요청 id 는 **이 사용자의 같은 condition 루틴**일 때만 믿는다 —
+       * 아니면(생성 직후의 임시 id·남의 id) 새로 만든다.
+       */
+      const owned = new Map<string, Set<string>>();
       for (const condition of conditions) {
+        const [found] = await conn.execute(
+          `SELECT id FROM routines WHERE user_id = ? AND \`condition\` = ?`,
+          [userId, condition],
+        );
+        const rows: unknown[] = Array.isArray(found) ? found : [];
+        owned.set(
+          condition,
+          new Set(
+            rows.map((row) =>
+              typeof row === "object" && row !== null && "id" in row
+                ? String(row.id)
+                : "",
+            ),
+          ),
+        );
+
         await conn.execute(
           `DELETE FROM routines WHERE user_id = ? AND \`condition\` = ?`,
           [userId, condition],
@@ -239,10 +288,14 @@ export async function PUT(request: Request) {
 
       for (const routine of routines) {
         /*
-         * id 를 **여기서** 만든다. DB 의 UUID() 에 맡기면 방금 넣은 행을 다시 찾아야 하는데,
+         * 새 id 는 **여기서** 만든다. DB 의 UUID() 에 맡기면 방금 넣은 행을 다시 찾아야 하는데,
          * 같은 이름·시간대 루틴이 여러 벌이면 엉뚱한 행을 집을 수 있다.
+         * `Set.delete` 는 한 번만 true 다 — 같은 id 를 두 번 보내도 PK 가 겹치지 않는다.
          */
-        const routineId = crypto.randomUUID();
+        const routineId =
+          routine.id && owned.get(routine.condition)?.delete(routine.id)
+            ? routine.id
+            : crypto.randomUUID();
 
         await conn.execute(
           `INSERT INTO routines (id, user_id, name, \`condition\`, time_slot, summary)

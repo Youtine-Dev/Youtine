@@ -8,12 +8,12 @@ import type { Routine, RoutineRun } from "@/types/skincare";
  * 각 테스트 이름 뒤의 괄호가 그 사고 번호다.
  */
 
-/** 단계 n개짜리 루틴 하나. 분모(예정 단계 수) 계산의 입력이다. */
-function routine(id: string, stepCount: number): Routine {
+/** 단계 n개짜리 루틴 하나. 분모(예정 단계 수) 계산의 입력이다. 기본은 기본 세트다. */
+function routine(id: string, stepCount: number, condition = ""): Routine {
   return {
     id,
     name: `${id} 루틴`,
-    condition: "",
+    condition,
     time: "am",
     summary: "",
     steps: Array.from({ length: stepCount }, (_, i) => ({
@@ -44,6 +44,7 @@ function run(routineId: string, finishedAt: Date, steps: number): RoutineRun {
 // 2026-08-19 는 수요일 — 주(월요일 시작)의 3일째다.
 const WEDNESDAY = new Date(2026, 7, 19, 21, 0, 0);
 const MONDAY = new Date(2026, 7, 17, 8, 0, 0);
+const TUESDAY = new Date(2026, 7, 18, 8, 0, 0);
 
 describe("weeklyAchievement", () => {
   it("분모는 주 전체가 아니라 경과 일수로 센다 (m7: 주 초 허위 하락)", () => {
@@ -70,8 +71,14 @@ describe("weeklyAchievement", () => {
 
   it("지난주 기록이 있으면 %p 차이를 낸다", () => {
     const lastWeek = new Date(2026, 7, 12, 9, 0, 0); // 지난주 수요일
+    const lastThursday = new Date(2026, 7, 13, 9, 0, 0);
+    // 1회분은 단계 수(4)를 넘지 않으므로 지난주 7단계는 이틀에 나눠 둔다.
     const result = weeklyAchievement(
-      [run("r1", MONDAY, 3), run("r1", lastWeek, 7)],
+      [
+        run("r1", MONDAY, 3),
+        run("r1", lastWeek, 4),
+        run("r1", lastThursday, 3),
+      ],
       [routine("r1", 4)],
       WEDNESDAY,
     );
@@ -92,13 +99,81 @@ describe("weeklyAchievement", () => {
     expect(result.hasRuns).toBe(false);
   });
 
-  it("하루에 여러 번 해도 100% 를 넘지 않는다", () => {
+  it("기타 세트 수행이 분자에 더해져도 100% 를 넘지 않는다 (Q1)", () => {
+    // 기본 4단계를 월~수 매일 + 기타 4단계도 매일 → 분자 24 / 분모 12(기본만).
+    const days = [MONDAY, TUESDAY, WEDNESDAY];
     const result = weeklyAchievement(
-      [run("r1", MONDAY, 4), run("r1", WEDNESDAY, 40)],
+      days.flatMap((day) => [run("r1", day, 4), run("f1", day, 4)]),
+      [routine("r1", 4), routine("f1", 4, "고민 집중")],
+      WEDNESDAY,
+    );
+    expect(result.planned).toBe(12);
+    expect(result.percent).toBe(100);
+  });
+
+  it("기타 세트가 있어도 기본 루틴을 매일 다 하면 100% 다 (M8: 약 50% 에서 멈추던 문제)", () => {
+    // 프로브 실측 재현: 기본 아침·저녁 + 기타 아침·저녁, 기본만 매일 수행.
+    // 예전에는 기타 세트까지 매일 예정으로 쳐서 18/36 = 50% 였다.
+    const days = [MONDAY, TUESDAY, WEDNESDAY];
+    const result = weeklyAchievement(
+      days.flatMap((day) => [run("am", day, 3), run("pm", day, 3)]),
+      [
+        routine("am", 3),
+        routine("pm", 3),
+        routine("f-am", 3, "고민 집중"),
+        routine("f-pm", 3, "고민 집중"),
+      ],
+      WEDNESDAY,
+    );
+    expect(result.planned).toBe(18); // 기본 6단계 × 3일
+    expect(result.percent).toBe(100);
+  });
+
+  it("같은 루틴을 하루 두 번 해도 1회분만 센다 (M8: 안 한 날을 메우던 문제)", () => {
+    // 월요일에 두 번, 화·수는 안 함 → 4/12 = 33%. 예전에는 8/12 = 67% 였다.
+    const result = weeklyAchievement(
+      [run("r1", MONDAY, 4), run("r1", new Date(2026, 7, 17, 21, 0, 0), 4)],
       [routine("r1", 4)],
       WEDNESDAY,
     );
-    expect(result.percent).toBe(100);
+    expect(result.done).toBe(4);
+    expect(result.percent).toBe(33);
+  });
+
+  it("1회분은 루틴의 현재 단계 수를 넘지 않는다", () => {
+    const result = weeklyAchievement(
+      [run("r1", MONDAY, 40)],
+      [routine("r1", 4)],
+      WEDNESDAY,
+    );
+    expect(result.done).toBe(4);
+  });
+
+  it("지난주 델타도 같은 규칙(기본 세트 분모·하루 1회분)으로 센다", () => {
+    const lastMonday = new Date(2026, 7, 10, 8, 0, 0);
+    const result = weeklyAchievement(
+      [
+        run("r1", MONDAY, 4),
+        // 지난주 월요일에 기본 두 번 + 기타 한 번 → 기본 4 + 기타 4 = 8 / 28
+        run("r1", lastMonday, 4),
+        run("r1", new Date(2026, 7, 10, 21, 0, 0), 4),
+        run("f1", lastMonday, 4),
+      ],
+      [routine("r1", 4), routine("f1", 4, "고민 집중")],
+      WEDNESDAY,
+    );
+    expect(result.percent).toBe(33); // 4/12
+    expect(result.delta).toBe(33 - 29); // 지난주 8/28 = 29%
+  });
+
+  it("기본 세트가 없으면 있는 세트로 분모를 센다 (분모 0 → '루틴 없음' 거짓 안내 방지)", () => {
+    const result = weeklyAchievement(
+      [run("f1", MONDAY, 4)],
+      [routine("f1", 4, "고민 집중")],
+      WEDNESDAY,
+    );
+    expect(result.planned).toBe(12);
+    expect(result.percent).toBe(33);
   });
 
   it("루틴이 하나도 없으면 percent 는 0 이 아니라 null 이다", () => {

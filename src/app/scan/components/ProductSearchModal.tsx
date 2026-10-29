@@ -2,12 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ProductCandidate } from "@/api/ai";
 import { Icon } from "@/components/Icon";
+import { useRoutines } from "@/lib/data";
 import { stepIcon } from "@/lib/stepIcon";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { useModalFocus } from "@/lib/useModalFocus";
 
 import type { Product } from "@/types/skincare";
 
@@ -31,6 +33,7 @@ export function ProductSearchModal({
   result,
   saved,
   shelfCount,
+  extractStartedAt,
   error,
   onSelect,
   onBack,
@@ -46,13 +49,15 @@ export function ProductSearchModal({
   result: SearchResult | null;
   saved: Product | null;
   shelfCount: number;
+  /** 성분 추출 시작 시각(ms). 훅이 들고 있어 모달이 다시 떠도 경과 초가 이어진다(m28). */
+  extractStartedAt: number;
   error: string | null;
   onSelect: (candidate: ProductCandidate) => void;
   onBack: () => void;
   onConfirm: () => void;
   onRegisterAnother: () => void;
   onClose: () => void;
-  /** 성분을 못 찾았을 때 — 모달을 닫고 성분표 촬영으로 보낸다. */
+  /** 성분·후보를 못 찾았을 때 — 모달을 닫고 성분표 촬영으로 보낸다. */
   onRetakeLabel: () => void;
   /** 사용자가 폼에 입력한 제품명 — 후보에 없을 때 그대로 등록하는 데 쓴다. */
   typedName: string;
@@ -60,9 +65,14 @@ export function ProductSearchModal({
   onUseTypedName: () => void;
 }) {
   const busy = phase === "extracting" || phase === "saving";
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // 완료 후 다음 행동 문구 — 루틴이 없는데 "다시 짜기"라고 하면 틀린 말이다(m33).
+  const hasRoutines = useRoutines().value.length > 0;
 
   // 모달 뒤 화면이 스크롤되면 안 된다(사용자 요청 2026-08-20).
   useBodyScrollLock();
+  // 열리면 포커스를 안으로 — 안 그러면 Tab 이 배경 카드로 가 키보드로 닫기에 닿지 못한다(m31).
+  useModalFocus(dialogRef);
 
   // Esc 로 닫기 — 오버레이라 브라우저 뒤로가기가 닫아 주지 않는다(CameraCapture 와 같은 이유).
   useEffect(() => {
@@ -75,6 +85,7 @@ export function ProductSearchModal({
 
   return (
     <div
+      ref={dialogRef}
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
@@ -122,10 +133,13 @@ export function ProductSearchModal({
               onSelect={onSelect}
               typedName={typedName}
               onUseTypedName={onUseTypedName}
+              onRetakeLabel={onRetakeLabel}
             />
           )}
 
-          {phase === "extracting" && <Extracting />}
+          {phase === "extracting" && (
+            <Extracting startedAt={extractStartedAt} />
+          )}
 
           {(phase === "found" || phase === "saving") && result && (
             <ResultView
@@ -172,13 +186,13 @@ export function ProductSearchModal({
           {phase === "done" && (
             <>
               {/*
-                방금 제품이 늘었다 — 새 제품을 반영해 루틴을 다시 짜는 것이 자연스러운
+                방금 제품이 늘었다 — 새 제품을 반영해 루틴을 (다시) 짜는 것이 자연스러운
                 다음 행동이다(사용자 피드백 2026-08-20: 닫기(X)와 "더 등록하기"의 기능이
                 같아서 헷갈렸다). 더 등록하기는 보조 버튼으로 내린다.
               */}
               <Link href="/routine/new" className={styles.submit}>
                 <Icon name="auto_awesome" filled />
-                루틴 다시 짜기
+                {hasRoutines ? "루틴 다시 짜기" : "루틴 만들기"}
               </Link>
               <button
                 type="button"
@@ -201,12 +215,17 @@ function CandidateList({
   onSelect,
   typedName,
   onUseTypedName,
+  onRetakeLabel,
 }: {
   candidates: ProductCandidate[];
   onSelect: (candidate: ProductCandidate) => void;
   typedName: string;
   onUseTypedName: () => void;
+  onRetakeLabel: () => void;
 }) {
+  // 깨진 썸네일 주소 — 브라우저 기본 깨진 이미지 대신 아이콘으로 폴백한다(m34, ProductCard 와 같은 방식).
+  const [brokenSrcs, setBrokenSrcs] = useState<string[]>([]);
+
   /*
    * 후보에 원하는 제품이 없을 때의 탈출구 — 어떤 제품이든 등록은 가능해야 한다.
    * 문구가 "더 깊게 검색"인 이유: 이 버튼은 단순 건너뛰기가 아니라 **다음 단계에서
@@ -221,7 +240,7 @@ function CandidateList({
     >
       <Icon name="travel_explore" size="sm" />
       <span>
-        더 <strong>{typedName}</strong> 를 깊게 검색해보기
+        <strong>&lsquo;{typedName}&rsquo;</strong> 더 깊게 검색하기
       </span>
     </button>
   ) : null;
@@ -235,9 +254,18 @@ function CandidateList({
       <>
         <p className={styles.empty}>
           검색 결과가 없어요.
-          <br />더 깊게 찾아보거나, 성분표 사진을 올려 직접 읽을 수 있어요.
+          <br />더 깊게 찾아보거나, 성분표를 찍어 직접 읽을 수 있어요.
         </p>
         {typedOption}
+        {/* 안내만 하고 버튼이 없으면 막다른 길이다(m29) — 성분 0개 화면과 같은 촬영 흐름. */}
+        <button
+          type="button"
+          className={styles.emptyAction}
+          onClick={onRetakeLabel}
+        >
+          <Icon name="photo_camera" filled size="sm" />
+          성분표 촬영하기
+        </button>
       </>
     );
   }
@@ -251,50 +279,54 @@ function CandidateList({
       </p>
 
       <ul className={styles.candidates}>
-        {candidates.map((candidate, index) => (
-          // 이름이 겹치는 후보가 올 수 있어 index 를 함께 쓴다.
-          <li key={`${candidate.product_name}-${index}`}>
-            <button
-              type="button"
-              className={styles.candidate}
-              onClick={() => onSelect(candidate)}
-            >
-              <span className={styles.candidateThumb}>
-                {/*
+        {candidates.map((candidate, index) => {
+          const image = candidate.image_url;
+          return (
+            // 이름이 겹치는 후보가 올 수 있어 index 를 함께 쓴다.
+            <li key={`${candidate.product_name}-${index}`}>
+              <button
+                type="button"
+                className={styles.candidate}
+                onClick={() => onSelect(candidate)}
+              >
+                <span className={styles.candidateThumb}>
+                  {/*
                   화해 CDN 썸네일(96x96). 서버가 허용 호스트인지 이미 걸렀다.
                   최적화는 끈다 — 이미 작은 이미지라 얻을 게 없고 서버 부하만 는다.
                 */}
-                {candidate.image_url ? (
-                  <Image
-                    src={candidate.image_url}
-                    alt=""
-                    width={48}
-                    height={48}
-                    unoptimized
-                    className={styles.candidateThumbImg}
-                  />
-                ) : (
-                  <Icon name="image" className={styles.candidateThumbIcon} />
-                )}
-              </span>
-
-              <span className={styles.candidateText}>
-                <span className={styles.candidateName}>
-                  {candidate.product_name}
+                  {image && !brokenSrcs.includes(image) ? (
+                    <Image
+                      src={image}
+                      alt=""
+                      width={48}
+                      height={48}
+                      unoptimized
+                      className={styles.candidateThumbImg}
+                      onError={() => setBrokenSrcs((list) => [...list, image])}
+                    />
+                  ) : (
+                    <Icon name="image" className={styles.candidateThumbIcon} />
+                  )}
                 </span>
-                {/* brand·volume 은 페이지에서 확인 못 하면 null 이다(규칙 6·7). 없으면 그냥 뺀다. */}
-                {(candidate.brand || candidate.volume) && (
-                  <span className={styles.candidateMeta}>
-                    {[candidate.brand, candidate.volume]
-                      .filter(Boolean)
-                      .join(" · ")}
+
+                <span className={styles.candidateText}>
+                  <span className={styles.candidateName}>
+                    {candidate.product_name}
                   </span>
-                )}
-              </span>
-              <Icon name="chevron_right" className={styles.candidateArrow} />
-            </button>
-          </li>
-        ))}
+                  {/* brand·volume 은 페이지에서 확인 못 하면 null 이다(규칙 6·7). 없으면 그냥 뺀다. */}
+                  {(candidate.brand || candidate.volume) && (
+                    <span className={styles.candidateMeta}>
+                      {[candidate.brand, candidate.volume]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </span>
+                <Icon name="chevron_right" className={styles.candidateArrow} />
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
       {/* 후보가 있어도 원하는 게 아닐 수 있다 — 목록 아래에 같은 탈출구를 둔다. */}
@@ -303,18 +335,19 @@ function CandidateList({
   );
 }
 
-/** 성분 추출 대기. 실측 14~54초라 경과를 보여 주지 않으면 멈춘 줄 안다. */
-function Extracting() {
-  const [elapsed, setElapsed] = useState(0);
+/**
+ * 성분 추출 대기. 실측 14~54초라 경과를 보여 주지 않으면 멈춘 줄 안다.
+ * 시작 시각은 훅에서 받는다 — 탭을 갔다 와 다시 마운트돼도 이어서 센다(m28).
+ */
+function Extracting({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const startedAt = Date.now();
-    const id = setInterval(
-      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
-      1000,
-    );
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
 
   return (
     <p className={styles.loading} role="status">
@@ -352,6 +385,10 @@ function ResultView({
   result: SearchResult;
   onRetakeLabel?: () => void;
 }) {
+  const image = result.thumbnail || result.imageUrl;
+  // 깨진 이미지면 카테고리 아이콘으로(m34). src 를 기억해 다른 이미지로 바뀌면 다시 시도한다.
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+
   return (
     <>
       <div className={styles.head}>
@@ -363,14 +400,15 @@ function ResultView({
             ⚠️ 저장 전 미리보기는 외부(화해 CDN) 원본 URL 을 직접 로드한다 —
             저장 시 서버가 data URL 로 임베딩하는 정책의 **의도된 예외**다(m28).
           */}
-          {result.thumbnail || result.imageUrl ? (
+          {image && image !== brokenSrc ? (
             <Image
-              src={result.thumbnail ?? result.imageUrl ?? ""}
+              src={image}
               alt=""
               width={112}
               height={112}
               unoptimized
               className={styles.thumbImg}
+              onError={() => setBrokenSrc(image)}
             />
           ) : (
             <Icon name={stepIcon(result.category)} filled />

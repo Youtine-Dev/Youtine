@@ -64,8 +64,12 @@ export function textArray(
   const items: string[] = [];
   for (const item of value) {
     if (typeof item !== "string") continue;
-    if (item.length > options.maxLength) return null;
-    items.push(item);
+    const trimmed = item.trim();
+    // 공백뿐인 항목은 버린다 — `[" "]` 가 "성분을 가져왔다"로 통과해 공유 카탈로그의
+    // 사진 성분을 덮던 경로가 있었다(3라운드 M2).
+    if (!trimmed) continue;
+    if (trimmed.length > options.maxLength) return null;
+    items.push(trimmed);
   }
   return items;
 }
@@ -98,4 +102,25 @@ export function isoDate(value: unknown): Date | null {
   if (year < 2020 || date.getTime() > Date.now() + 86_400_000) return null;
 
   return date;
+}
+
+/**
+ * 요청 본문을 **JSON 객체**로 읽는다. JSON 이 아니거나 객체가 아니면(`null`·배열·원시값) `null`.
+ *
+ * `(await request.json()) as Body` 는 `null` 을 통과시켜 다음 줄의 `body.x` 에서 TypeError →
+ * 400 이어야 할 요청이 500(트랜잭션 안이면 503 "DB 장애" 문구)이 됐다(3라운드 m1, 라우트 12곳).
+ */
+export async function readJsonObject(
+  request: Request,
+): Promise<Record<string, unknown> | null> {
+  let value: unknown;
+  try {
+    value = await request.json();
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }

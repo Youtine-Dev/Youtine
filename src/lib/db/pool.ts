@@ -65,23 +65,56 @@ export async function execute(
 }
 
 /**
+ * 다시 돌리면 풀리는 트랜잭션 충돌 — `ER_CHECKREAD`(1020, 스냅샷 격리: 읽은 행이 그새 바뀜)·
+ * `ER_LOCK_DEADLOCK`(1213). 같은 신규 제품을 두 사용자가 동시에 등록하면 난다(3라운드 m19, 31회 중 1회 실측).
+ */
+function isTransientConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errno" in error &&
+    (error.errno === 1020 || error.errno === 1213)
+  );
+}
+
+/**
  * 여러 쿼리를 원자적으로 실행한다.
  *
  * 루틴 저장이 "기존 삭제 → 새로 삽입"이라 중간에 실패하면 **루틴이 통째로 사라진다.**
  * 트랜잭션 없이는 이 구간이 데이터 유실 경로가 된다.
+ *
+ * ⚠️ 충돌(`isTransientConflict`)이면 롤백 후 `fn` 을 **처음부터 한 번 더** 실행한다.
+ *    그래서 `fn` 은 DB 밖에 부작용을 남기면 안 된다 — 카운터·결과는 콜백 **안에서** 만들어 반환하고,
+ *    큐 등록·외부 호출은 트랜잭션이 끝난 뒤에 한다.
  */
 export async function withTransaction<T>(
   fn: (conn: PoolConnection) => Promise<T>,
 ): Promise<T> {
   const conn = await getPool().getConnection();
   try {
-    await conn.beginTransaction();
-    const out = await fn(conn);
-    await conn.commit();
-    return out;
-  } catch (error) {
-    await conn.rollback();
-    throw error;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await conn.beginTransaction();
+        const out = await fn(conn);
+        await conn.commit();
+        return out;
+      } catch (error) {
+        try {
+          await conn.rollback();
+        } catch (rollbackError) {
+          /*
+           * 롤백 실패가 원래 오류를 덮으면 로그에서 진짜 원인이 사라진다(3라운드 m10).
+           * 롤백 상태를 모르는 커넥션은 풀에 돌려주지 않는다 — 다음 사용자의 BEGIN 이
+           * 열린 트랜잭션을 암묵 커밋할 수 있다. destroy 후의 release 는 아무것도 안 한다.
+           */
+          console.error("[db] rollback 실패:", rollbackError);
+          conn.destroy();
+          throw error;
+        }
+        if (attempt === 1 && isTransientConflict(error)) continue;
+        throw error;
+      }
+    }
   } finally {
     // 롤백했든 커밋했든 커넥션은 반드시 풀로 돌려준다.
     conn.release();

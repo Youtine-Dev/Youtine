@@ -18,11 +18,9 @@ export function IngredientAlerts() {
 
   return (
     <section className={card.card}>
+      {/* 누를 수 없는 info 아이콘이 있었다 — 동작 없는 장식이라 뺐다(3라운드 I14). */}
       <div className={styles.header}>
-        <h3 className={card.cardTitle}>성분 알림</h3>
-        <span className={styles.info}>
-          <Icon name="info" />
-        </span>
+        <h2 className={card.cardTitle}>성분 알림</h2>
       </div>
 
       {/* 제품 목록을 불러오는 짧은 순간뿐이다 — 이제 홈에서 AI 생성을 하지 않는다. */}
@@ -54,7 +52,11 @@ export function IngredientAlerts() {
 
       {state.kind === "no-warnings" && (
         <p className={styles.status}>
-          <Icon name="check_circle" filled />
+          {/* 분석 중인데 체크(완료) 아이콘이면 "끝났다"로 읽힌다(3라운드 I14). */}
+          <Icon
+            name={state.pendingCount > 0 ? "hourglass_top" : "check_circle"}
+            filled
+          />
           {state.pendingCount > 0 ? (
             <SentenceBreak
               text={`${state.pendingCount}개 제품을 분석하고 있어요. 끝나면 여기에 표시됩니다.`}
@@ -72,9 +74,9 @@ export function IngredientAlerts() {
               <li key={alert.id} className={styles.item}>
                 <Icon name="warning" className={styles.itemIcon} />
                 <div>
-                  <h4 className={`${card.label} ${styles.itemTitle}`}>
+                  <h3 className={`${card.label} ${styles.itemTitle}`}>
                     {alert.productName}
-                  </h4>
+                  </h3>
                   <p className={styles.itemDetail}>{alert.warning}</p>
                 </div>
               </li>

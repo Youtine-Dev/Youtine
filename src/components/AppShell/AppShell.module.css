@@ -3,6 +3,28 @@
   min-height: 100dvh;
 }
 
+/* 평소엔 화면 위로 숨었다가 포커스를 받으면 내려온다. 고정 헤더(z 50)·모달(z 100)보다 위. */
+.skipLink {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 200;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: var(--text-label-sm);
+  letter-spacing: var(--tracking-label-sm);
+  transform: translateY(calc(-100% - 16px));
+}
+
+.skipLink:focus {
+  transform: none;
+}
+
 /*
  * lg 이상에서 좌측 사이드바가 등장한다. 사이드바는 position:fixed 라 문서 흐름에서
  * 빠져 있으므로, 본문을 그 폭만큼 직접 밀어 준다.

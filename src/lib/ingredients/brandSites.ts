@@ -74,8 +74,12 @@ export function splitIngredients(text: string): string[] {
       .map((item) => item.replace(/\s+/g, " ").trim())
       .filter((item) => item.length > 0 && item.length <= 60)
       // `[유화]` 같은 공정 구분 머리표나 안내 문구가 섞이면 성분이 오염된다 — 성분명에는
-      // 대괄호·콜론·마침표가 오지 않는다(실측: 한 페이지에 여러 제품 표기가 이어져 있었다).
-      .filter((item) => !/[[\]:·。.]|입니다|사용법|제조/.test(item))
+      // 대괄호·콜론·문장 마침표가 오지 않는다(실측: 한 페이지에 여러 제품 표기가 이어져 있었다).
+      // ⚠️ 숫자 사이 마침표는 **함량 소수점**이라 거르지 않는다: `레티놀(0.1%)` 처럼 함량을
+      // 적는 건 바로 활성 성분이다. 빠지면 충돌 검사가 조용히 사라진다(M3).
+      .filter(
+        (item) => !/[[\]:·。]|(?<!\d)\.|\.(?!\d)|입니다|사용법|제조/.test(item),
+      )
   );
 }
 
@@ -83,12 +87,13 @@ export function splitIngredients(text: string): string[] {
  * 전성분으로 보이는가 — **오탐이 성분 오염으로 이어지므로 보수적으로 본다.**
  * 화장품 전성분은 거의 예외 없이 정제수/워터로 시작하고 항목이 여럿이다.
  */
-function looksLikeIngredients(items: string[]): boolean {
+export function looksLikeIngredients(items: string[]): boolean {
   // 상한: 화장품 전성분은 많아야 80종대다. 그보다 많으면 **여러 제품이 이어붙은 것**이라
   // 통째로 버린다(실측: 183개가 나온 적이 있다 — 검색 결과 페이지를 긁은 경우).
   if (items.length < 5 || items.length > 90) return false;
   const head = items[0];
-  return /^(정제수|물|워터|water|아쿠아)/i.test(head);
+  // 영문 INCI 는 "Aqua/Water" 로 시작하는 표기가 흔하다(3라운드 — 웹 경로 관문의 미탐 방지).
+  return /^(정제수|물|워터|water|aqua|아쿠아)/i.test(head);
 }
 
 /**
@@ -129,15 +134,15 @@ async function fetchHtml(url: string): Promise<string | null> {
   }
 }
 
+const JSON_LD_BLOCK =
+  /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi;
+
 /**
  * Cafe24 계열 몰(웰라쥬 등)은 JSON-LD `Product.description` 에 전성분을 통째로 넣는다.
  * HTML 파싱보다 안정적이라 이걸 먼저 본다.
  */
 function fromJsonLd(html: string): string[] | null {
-  const blocks = html.matchAll(
-    /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi,
-  );
-  for (const block of blocks) {
+  for (const block of html.matchAll(JSON_LD_BLOCK)) {
     const raw = block[1];
     if (!raw.includes("정제수")) continue;
     for (const description of descriptionsOf(raw)) {
@@ -280,12 +285,59 @@ const CAPACITY_TOKEN = /^\d+(\.\d+)?(ml|g|kg|l|mg|매|개|호|p|ea)?$/i;
 /**
  * 제품명 → 매칭 토큰. **`normalize` 를 쓰지 않는다** — 공백을 먼저 지우면 한글 이름이
  * 통째로 토큰 1개가 되어 토큰 매칭 자체가 성립하지 않는다(M3 의 원인).
+ *
+ * `aliases`(브랜드 표기)와 같은 토큰은 뺀다 — 그 몰의 모든 페이지 제목에 브랜드가 붙어 있어
+ * `웰라쥬 수딩 크림` 이 아무 웰라쥬 제품에나 한 표를 공짜로 얻는다.
  */
-function nameTokens(productName: string): string[] {
+export function nameTokens(
+  productName: string,
+  aliases: readonly string[] = [],
+): string[] {
+  const brands = new Set(aliases.map(normalize));
   return productName
     .toLowerCase()
     .split(/[^가-힣a-z0-9]+/)
-    .filter((token) => token.length >= 2 && !CAPACITY_TOKEN.test(token));
+    .filter(
+      (token) =>
+        token.length >= 2 && !CAPACITY_TOKEN.test(token) && !brands.has(token),
+    );
+}
+
+/** JSON-LD 의 `Product` 노드 이름. 브랜드·판매자·빵부스러기의 `name` 은 제품명이 아니라 뺀다. */
+function collectProductNames(node: unknown, out: string[]): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectProductNames(item, out);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  const record = node as Record<string, unknown>;
+  if (
+    [record["@type"]].flat().includes("Product") &&
+    typeof record.name === "string"
+  ) {
+    out.push(record.name);
+  }
+  for (const value of Object.values(record)) collectProductNames(value, out);
+}
+
+/** 상세 페이지가 스스로 밝힌 제품명 후보 — `og:title` → `<title>` → JSON-LD `name` 순. */
+function pageTitles(html: string): string[] {
+  const titles: string[] = [];
+  const og =
+    /<meta[^>]+(?:property|name)=["']og:title["'][^>]+content=["']([^"']+)["']/i.exec(
+      html,
+    )?.[1];
+  const title = /<title[^>]*>([^<]+)<\/title>/i.exec(html)?.[1];
+  if (og) titles.push(og);
+  if (title) titles.push(title);
+  for (const block of html.matchAll(JSON_LD_BLOCK)) {
+    try {
+      collectProductNames(JSON.parse(block[1]), titles);
+    } catch {
+      // 유효하지 않은 JSON-LD — 이름 후보에서만 빠진다.
+    }
+  }
+  return titles;
 }
 
 /**
@@ -296,22 +348,29 @@ function nameTokens(productName: string): string[] {
  * 후보 선정이 느슨한 어댑터(사이트맵 기반)를 위한 마지막 관문이자, 검색 랭킹을 믿는
  * Cafe24 경로에도 같이 거는 방어다.
  *
- * 과반 일치를 요구한다: 전부 일치는 사용자가 적은 이름과 공식 표기가 조금만 달라도 깨지고,
- * 하나만 일치는 `토너` 같은 흔한 단어로 통과해 버린다.
+ * 제목 출처를 차례로 본다. 제품 토큰이 **하나도 안 맞는** 출처는 사이트명 같은 무의미한
+ * 제목이라 건너뛴다 — 웰라쥬 상세의 `og:title` 은 `웰라쥬` 뿐이라, 그것만 보던 시절엔
+ * 모든 웰라쥬 제품이 공식몰 경로에서 탈락했다(M5).
+ *
+ * **과반(절반 초과)** 일치를 요구한다: 전부 일치는 사용자가 적은 이름과 공식 표기가 조금만
+ * 달라도 깨지고, 절반이면 2토큰 이름이 `크림` 같은 흔한 단어 하나로 통과한다(I15).
+ * 오탐(남의 성분)이 미탐(AI 경로로 넘어감)보다 나쁘다.
  */
-function titleMatches(html: string, productName: string): boolean {
-  const title =
-    /<meta[^>]+(?:property|name)=["']og:title["'][^>]+content=["']([^"']+)["']/i.exec(
-      html,
-    )?.[1] ?? /<title[^>]*>([^<]+)<\/title>/i.exec(html)?.[1];
-  if (!title) return false;
-
-  const tokens = nameTokens(productName);
+export function titleMatches(
+  html: string,
+  productName: string,
+  aliases: readonly string[] = [],
+): boolean {
+  const tokens = nameTokens(productName, aliases);
   if (tokens.length === 0) return false;
 
-  const haystack = normalize(title);
-  const hits = tokens.filter((token) => haystack.includes(token)).length;
-  return hits * 2 >= tokens.length;
+  for (const title of pageTitles(html)) {
+    const haystack = normalize(title);
+    const hits = tokens.filter((token) => haystack.includes(token)).length;
+    if (hits === 0) continue;
+    return hits * 2 > tokens.length;
+  }
+  return false;
 }
 
 /**
@@ -447,10 +506,15 @@ export async function findIngredientsFromBrandSite(
       const html = await fetchHtml(url);
       if (!html) continue;
       // 성분을 뽑기 **전에** 그 제품이 맞는지 본다 — 뽑고 나면 버리기 아까워진다(M3).
-      if (!titleMatches(html, productName)) continue;
+      if (!titleMatches(html, productName, adapter.aliases)) continue;
       const items = parseIngredients(html);
       if (items) return items;
     }
+    // 어댑터가 죽어도 결과는 "AI 경로로 넘어감"뿐이라 아무도 모른다 — 웰라쥬(M5)·토니모리(m21)가
+    // 그렇게 조용히 0건이었다. 후보 수로 "검색 0건"과 "후보는 있었는데 전부 탈락"을 가른다.
+    console.warn(
+      `[brandSites] ${adapter.aliases[0]} 공식몰에서 못 찾음(후보 ${urls.length}건) — AI 경로로 진행: ${productName}`,
+    );
   } catch (error: unknown) {
     console.warn("[brandSites] 조회 실패 — AI 경로로 진행:", error);
   }

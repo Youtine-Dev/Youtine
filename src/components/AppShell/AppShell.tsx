@@ -31,6 +31,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <>
+      {/*
+        본문으로 건너뛰기(3라운드 I14) — 키보드로 들어오면 첫 Tab 에 보인다. 대상은 각 페이지의
+        `<main id="main">`. 몰입 화면은 건너뛸 네비게이션이 없어 두지 않는다.
+        next/link 가 아니라 <a> — 같은 문서 안 조각 이동이라 라우터가 낄 일이 없다.
+      */}
+      {!immersive && (
+        <a href="#main" className={styles.skipLink}>
+          본문으로 건너뛰기
+        </a>
+      )}
       <SideNav />
       <div className={immersive ? styles.contentFull : styles.content}>
         {children}

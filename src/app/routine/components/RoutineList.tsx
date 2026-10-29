@@ -7,6 +7,8 @@ import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
 import { deleteRoutines, useRoutines, useRuns } from "@/lib/data";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { isSameLocalDay } from "@/lib/storage/history";
+import { useModalFocus } from "@/lib/useModalFocus";
 
 import { isFocusRoutine, ROUTINE_CONDITION } from "../condition";
 import { RoutineCard } from "./RoutineCard";
@@ -33,14 +35,12 @@ function DeleteConfirmModal({
   useBodyScrollLock();
 
   /*
-   * 열릴 때 포커스를 모달 안(취소)으로 옮긴다(재검토 N5) — 안 하면 포커스가
-   * 스크림 뒤 트리거에 남아 Enter 재입력이 모달을 또 열려 하고, 스크린리더는
-   * 다이얼로그가 열린 것을 모른다. 닫을 때 복원은 트리거 쪽(DeleteRoutineSet)이 한다.
+   * 열릴 때 포커스를 모달 안(취소)으로 옮기고, Tab 을 가두고, 닫히면 트리거로 돌려준다
+   * (재검토 N5 · 3라운드 m31 — 예전엔 초기 포커스만 있어 Tab 이 배경으로 빠졌다).
    */
+  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
+  useModalFocus(dialogRef, cancelRef);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -52,6 +52,7 @@ function DeleteConfirmModal({
 
   return (
     <div
+      ref={dialogRef}
       className={styles.confirmOverlay}
       role="dialog"
       aria-modal="true"
@@ -113,13 +114,6 @@ function DeleteRoutineSet({
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [failed, setFailed] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  /** 취소로 닫으면 포커스를 트리거로 복원한다(N5). 삭제 성공 시엔 버튼째 사라지므로 무해한 no-op. */
-  function close() {
-    setOpen(false);
-    triggerRef.current?.focus();
-  }
 
   async function handleConfirm() {
     setDeleting(true);
@@ -139,7 +133,6 @@ function DeleteRoutineSet({
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
         className={styles.delete}
         onClick={() => {
@@ -157,21 +150,10 @@ function DeleteRoutineSet({
           deleting={deleting}
           failed={failed}
           onConfirm={handleConfirm}
-          onClose={close}
+          onClose={() => setOpen(false)}
         />
       )}
     </>
-  );
-}
-
-/** 같은 날짜인가 — 기록은 ISO 문자열이라 로컬 시간대로 비교한다. */
-function isToday(iso: string, today: Date): boolean {
-  const at = new Date(iso);
-  return (
-    !Number.isNaN(at.getTime()) &&
-    at.getFullYear() === today.getFullYear() &&
-    at.getMonth() === today.getMonth() &&
-    at.getDate() === today.getDate()
   );
 }
 
@@ -186,6 +168,11 @@ export function RoutineList() {
   const runsRes = useRuns();
   // Pro 업셀 안내 — early return(로딩/에러)보다 앞에 있어야 한다(훅 규칙).
   const [proNotice, setProNotice] = useState(false);
+  /**
+   * 편집 중인 카드 — 한 번에 하나만 편집한다(m7). 저장이 같은 조건의 형제를 함께
+   * 보내므로, 아침·저녁을 동시에 편집하면 한쪽 저장이 다른 쪽 초안의 기준을 바꾼다.
+   */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // "오늘 완료" 표시가 기록에서 나오므로 둘 다 있어야 한 번에 정확히 그린다.
   if (!routinesRes.ready || !runsRes.ready)
@@ -216,7 +203,7 @@ export function RoutineList() {
   const today = new Date();
   const doneToday = new Set(
     runs
-      .filter((run) => isToday(run.finishedAt, today))
+      .filter((run) => isSameLocalDay(run.finishedAt, today))
       .map((run) => run.routineId),
   );
 
@@ -243,6 +230,8 @@ export function RoutineList() {
    */
   const focus = routines.filter((r) => isFocusRoutine(r.condition));
   const basic = routines.filter((r) => !isFocusRoutine(r.condition));
+  // 편집하던 카드가 사라졌으면(세트 삭제 등) 잠금도 풀린다 — 다른 카드가 영영 잠기지 않게.
+  const editing = routines.some((r) => r.id === editingId) ? editingId : null;
 
   const cards = (list: typeof routines) => (
     <ul className={styles.list}>
@@ -251,6 +240,8 @@ export function RoutineList() {
           key={routine.id}
           routine={routine}
           done={doneToday.has(routine.id)}
+          editLocked={editing !== null && editing !== routine.id}
+          onEditingChange={(on) => setEditingId(on ? routine.id : null)}
         />
       ))}
     </ul>
