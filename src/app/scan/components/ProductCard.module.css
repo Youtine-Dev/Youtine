@@ -37,7 +37,8 @@ button.card:hover {
   width: 96px;
   height: 96px;
   margin-bottom: 16px;
-  border-radius: var(--radius-full);
+  /* 제품 사진은 사각형 — 원형이면 용기 양끝이 잘린다(사용자 요청 2026-11-02). */
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-variant) 30%, transparent);
   /* --primary-container 는 '컨테이너 배경' 역할이라 다크에서 같이 어두워져
      어두운 표면 위 아이콘으로는 대비가 무너진다. 표면 위 강조색은 --primary 다. */
