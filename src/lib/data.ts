@@ -17,6 +17,7 @@
 import useSWR, { mutate, type SWRConfiguration } from "swr";
 
 import {
+  fetchIngredientRole,
   fetchShelfReport,
   recommendConcernIngredients,
   type ConcernIngredient,
@@ -69,6 +70,8 @@ const KEYS = {
   byIngredient: "/products/by-ingredient",
   /** 성분 하나의 공유 지식. 실제 키에는 성분명이 붙는다. DB 읽기라 AI 옵션이 아니다. */
   ingredientKnowledge: "/knowledge/ingredient",
+  /** 성분 역할 한두 문장(AI, 성분 단위 공유 캐시). 실제 키에는 성분명이 붙는다. */
+  ingredientRole: "/ai/ingredient-role",
   concernKnowledge: "/knowledge/concerns",
 } as const;
 
@@ -115,6 +118,11 @@ export type Resource<T> = {
    */
   errorMessage: string | null;
   retry: () => void;
+  /**
+   * 지금 요청이 나가 있는가. SWR 은 재검증을 시작해도 `error` 를 **성공해야** 지운다 —
+   * AI 호출(10~30초)을 "다시 시도"하면 그동안 에러 화면이 그대로 남는다. 그걸 가릴 때만 쓴다.
+   */
+  validating: boolean;
 };
 
 /** 서버가 준 `{ message }` 만 꺼낸다. 그 밖의 오류 내용은 화면에 올리지 않는다. */
@@ -134,7 +142,12 @@ function useResource<T>(
   fallback: T,
   options: SWRConfiguration = SWR_OPTIONS,
 ): Resource<T> {
-  const { data, error, mutate: revalidate } = useSWR<T>(key, fetcher, options);
+  const {
+    data,
+    error,
+    isValidating,
+    mutate: revalidate,
+  } = useSWR<T>(key, fetcher, options);
 
   return {
     // 호출하지 않기로 한 상태는 "기다릴 것도 없다" — 로딩으로 보이면 안 된다.
@@ -143,6 +156,7 @@ function useResource<T>(
     error: error !== undefined,
     errorMessage: serverMessage(error),
     retry: () => void revalidate(),
+    validating: isValidating,
   };
 }
 
@@ -198,7 +212,7 @@ export function useConcernIngredients(
     // 키가 null 이면 이 함수는 호출되지 않는다. 그래서 빈 문자열 폴백이 실행될 일이 없다.
     () => recommendConcernIngredients({ wonder: wonder ?? "" }),
     null,
-    // 이 레포에서 SWR 로 부르는 유일한 AI 엔드포인트다 — 자동 재검증을 끈다.
+    // AI 엔드포인트다(성분 역할과 함께 둘뿐) — 자동 재검증을 끈다.
     AI_SWR_OPTIONS,
   );
 
@@ -278,6 +292,50 @@ export const useIngredientKnowledge = (name: string | null) =>
     () => fetchIngredientKnowledge({ name: name ?? "" }),
     null,
   );
+
+/**
+ * 앞서 나간 성분 역할 요청들이 **모두 끝나면** 풀리는 약속. 다음 칩이 429 를 받으면 이걸 기다린다.
+ * ponytail: 모듈 전역 체인 — 탭 하나 안에서만 줄을 세운다. 다른 AI 기능(루틴 생성 등)이 쥔 슬롯은
+ * 기다리지 않고 한 번 더 429 를 보여 준다.
+ */
+let roleRequestsSettled: Promise<unknown> = Promise.resolve();
+
+/**
+ * 칩 A 가 생성 중(모달을 닫아도 서버는 끝까지 만들어 저장한다)일 때 칩 B 를 열면 사용자당 동시 1건
+ * 가드에 걸려 429 다 — 사용자는 정상적인 일을 했는데 에러 화면을 보게 된다(코드 리뷰 확정 2026-11-02).
+ * 그래서 429 면 앞 요청들이 끝나길 기다렸다가 **한 번만** 다시 부른다. 그동안 화면은 대기로 남는다.
+ * 캐시가 있는 칩은 서버가 가드보다 먼저 답하므로 이 대기를 타지 않는다.
+ */
+async function fetchIngredientRoleInTurn(name: string) {
+  const previous = roleRequestsSettled;
+  const request = fetchIngredientRole({ name });
+  roleRequestsSettled = Promise.allSettled([previous, request]);
+  try {
+    return await request;
+  } catch (error: unknown) {
+    if (!(error instanceof ApiError) || error.status !== 429) throw error;
+    await previous;
+    return fetchIngredientRole({ name });
+  }
+}
+
+/**
+ * 성분 칩의 역할 설명. `name` 이 없으면(모달 닫힘) 호출하지 않는다.
+ * 공유 캐시가 없으면 10~30초짜리 AI 호출이라 **AI 옵션**이다(일반 옵션이면 포커스 복귀마다
+ * 다시 불러 429 가 난다). 모달을 일찍 닫아도 요청은 끊지 않는다 — 서버가 끝까지 만들어 저장해야
+ * 다음에 즉시 뜬다. `value` 의 `null` 은 "확신할 수 없다"는 정상 답(프롬프트 규칙 1·5)이다.
+ */
+export function useIngredientRole(
+  name: string | null,
+): Resource<string | null> {
+  const res = useResource(
+    name ? `${KEYS.ingredientRole}?n=${encodeURIComponent(name)}` : null,
+    () => fetchIngredientRoleInTurn(name ?? ""),
+    null,
+    AI_SWR_OPTIONS,
+  );
+  return { ...res, value: res.value?.role ?? null };
+}
 
 /** 고민 시나리오별 성분 사전. `enabled` 는 사전 카드를 펼쳤을 때만 부르기 위한 것. */
 export const useConcernKnowledge = (enabled: boolean) =>

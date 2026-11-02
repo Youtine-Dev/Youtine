@@ -1,10 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
-import { addProduct, removeProduct, useProducts } from "@/lib/data";
+import {
+  addProduct,
+  removeProduct,
+  useIngredientKnowledge,
+  useIngredientRole,
+  useProducts,
+} from "@/lib/data";
 import { stepIcon } from "@/lib/stepIcon";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 import { useModalFocus } from "@/lib/useModalFocus";
@@ -47,6 +54,8 @@ export function PopularProductModal({
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  /** 역할 설명을 연 성분 칩(라벨 원문). 2026-11-02 사용자 요청. */
+  const [roleOf, setRoleOf] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const shelf = useProducts();
 
@@ -67,7 +76,13 @@ export function PopularProductModal({
   // Esc 로 닫기 — 오버레이라 브라우저 뒤로가기가 닫아 주지 않는다.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !pending) onClose();
+      if (event.key !== "Escape" || pending) return;
+      /*
+       * 안쪽 성분 설명 모달이 떠 있으면 그쪽만 닫힌다(m9 — IngredientDetailModal 과 같은 가드).
+       * 두 리스너가 같은 window 에 붙고 이쪽이 먼저 등록돼 먼저 돈다 — 가드가 없으면 Esc 한 번에 둘 다 닫힌다.
+       */
+      if (dialogRef.current?.querySelector('[role="dialog"]')) return;
+      onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -183,8 +198,17 @@ export function PopularProductModal({
           ) : (
             <ul className={styles.ingredients}>
               {product.ingredients.map((ingredient) => (
-                <li key={ingredient} className={styles.ingredient}>
-                  {ingredient}
+                <li key={ingredient}>
+                  {/* 누르면 이 성분의 역할(2026-11-02). 검색 모달의 칩은 저장 전 AI 추출값이라
+                      표시 전용으로 둔다 — 오독된 이름의 설명이 공유 캐시에 쌓이면 안 된다. */}
+                  <button
+                    type="button"
+                    className={`${styles.ingredient} ${styles.ingredientButton}`}
+                    onClick={() => setRoleOf(ingredient)}
+                    aria-haspopup="dialog"
+                  >
+                    {ingredient}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -303,6 +327,155 @@ export function PopularProductModal({
           )}
         </div>
       </div>
+
+      {/* 시트 밖·오버레이 안 — 포털로 빼면 위 Esc 가드와 useModalFocus 의 중첩 판별이 깨진다. */}
+      {roleOf && (
+        <IngredientRoleModal
+          key={roleOf}
+          name={roleOf}
+          onClose={() => setRoleOf(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * 성분 칩 하나의 역할 — 제품 모달 **안에** 뜨는 작은 모달(사용자 요청 2026-11-02).
+ *
+ * 역할은 `/api/ai/ingredient-role`(공유 캐시, 없으면 AI 10~30초), 그 아래 기존 성분 지식이
+ * 있으면 고민·피부 타입 이름만 한 줄씩 붙인다(지식은 DB 읽기라 따로 즉시 뜬다).
+ *
+ * `IngredientDetailModal` 을 재사용하지 않는다 — 그 모달은 성분별 제품 목록을 열고 그 목록이
+ * 이 제품 모달을 열어 **순환 import + 끝없는 중첩**이 된다. 제품 목록은 여기 넣지 않는다.
+ */
+function IngredientRoleModal({
+  name,
+  onClose,
+}: {
+  name: string;
+  onClose: () => void;
+}) {
+  useBodyScrollLock();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(dialogRef, closeRef);
+  const titleId = useId();
+
+  const role = useIngredientRole(name);
+  // 보조 정보다 — 실패해도 따로 알리지 않고 줄만 뺀다(역할이 이 모달의 본문이다).
+  const knowledge = useIngredientKnowledge(name);
+  const helps = knowledge.value?.helps ?? [];
+  const typeCautions = knowledge.value?.typeCautions ?? [];
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      /*
+       * 바깥 제품 모달의 리스너는 보통 먼저 돌아 자기 가드로 물러난다. 그런데 그쪽 effect 가
+       * 다시 등록되면(pending 변경) 이쪽이 먼저 돌게 되고, 닫힌 뒤엔 가드가 볼 dialog 가 없다
+       * — 그 순서도 막으려고 여기서 멈춘다.
+       */
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  // 실패 후 "다시 시도"를 누르면 SWR 은 성공해야 error 를 지운다 — 그동안은 기다림으로 보인다.
+  const waiting = !role.ready || (role.error && role.validating);
+
+  return (
+    <div
+      ref={dialogRef}
+      className={`${styles.overlay} ${styles.overlayNested}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      // 보기 전용 — 바깥(스크림)을 누르면 닫는다.
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className={`${styles.sheet} ${styles.sheetSmall}`}>
+        <div className={styles.bar}>
+          <h2 id={titleId} className={`${styles.title} ${styles.roleTitle}`}>
+            {name}
+          </h2>
+          <button
+            ref={closeRef}
+            type="button"
+            className={styles.close}
+            onClick={onClose}
+            aria-label="닫기"
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+
+        {/* 첫 생성은 10~30초다. 포커스는 닫기 버튼에 있으니, 처음부터 있는 live 영역이어야
+            설명이 도착했을 때 스크린리더가 읽는다. */}
+        <div className={styles.body} aria-live="polite">
+          {waiting ? (
+            <RoleWaiting />
+          ) : role.error ? (
+            <DataState
+              error
+              onRetry={() => {
+                /* 재시도가 시작되면 이 버튼이 대기 화면으로 바뀌며 사라진다 — 포커스가 body 로
+                   빠지지 않게 먼저 모달 안(닫기)으로 옮긴다(코드 리뷰 확정 2026-11-02). */
+                closeRef.current?.focus();
+                role.retry();
+              }}
+              label="성분 설명"
+              message={role.errorMessage}
+            />
+          ) : (
+            <p className={styles.roleText}>
+              {/* null 은 실패가 아니라 "널리 알려진 역할을 확신할 수 없다"는 답이다(프롬프트 규칙 1·5). */}
+              {role.value ?? "널리 알려진 역할을 확인하지 못한 성분이에요."}
+            </p>
+          )}
+
+          {helps.length > 0 && (
+            <p className={styles.roleMeta}>
+              <strong>이런 고민에 도움</strong>
+              {helps.map((item) => item.scenario).join(" · ")}
+            </p>
+          )}
+          {typeCautions.length > 0 && (
+            <p className={styles.roleMeta}>
+              <strong>주의할 피부</strong>
+              {typeCautions.map((item) => item.skinType).join(" · ")}
+            </p>
+          )}
+
+          <p className={styles.roleDisclaimer}>
+            AI 가 정리한 일반적인 정보이며 의학적 조언이 아닙니다.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 첫 생성 대기 — 기다리는 동안만 마운트돼 0초부터 센다(ProductSearchModal 의 Extracting 과 같은 방식). */
+function RoleWaiting() {
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(startedAt);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <p className={styles.roleWaiting}>
+      <Icon name="progress_activity" className={styles.spinner} />
+      {/* 숫자는 매초 바뀐다 — 스크린리더가 매초 읽지 않게 문구만 알린다(RoutineForm N6). */}
+      <span role="status">성분 역할을 정리하는 중이에요…</span>
+      <span aria-hidden="true">{Math.round((now - startedAt) / 1000)}초</span>
+    </p>
   );
 }

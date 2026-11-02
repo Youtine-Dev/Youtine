@@ -8,7 +8,7 @@
  */
 
 /** 코드가 기대하는 마지막 마이그레이션. `db/migrations/` 에 파일을 추가하면 같이 올린다. */
-const EXPECTED_SCHEMA_VERSION = "007";
+const EXPECTED_SCHEMA_VERSION = "008";
 
 export function register() {
   /*
@@ -40,7 +40,7 @@ function warnIfSchemaBehind(rows: unknown[]): void {
       ? row.version
       : null;
 
-  // '001'…'007' 은 0 채운 같은 길이라 문자열 비교로 순서가 맞다.
+  // '001'…'008' 은 0 채운 같은 길이라 문자열 비교로 순서가 맞다.
   if (version !== null && version >= EXPECTED_SCHEMA_VERSION) return;
 
   console.error(

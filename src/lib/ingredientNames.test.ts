@@ -99,6 +99,7 @@ describe("sameIngredient", () => {
 describe("canonicalIngredient", () => {
   it("별칭 표의 대표명(시드 표기)으로 모은다", () => {
     expect(canonicalIngredient("Glycolic Acid")).toBe("글라이콜릭애씨드");
+    expect(canonicalIngredient("글리콜릭애씨드")).toBe("글라이콜릭애씨드");
     expect(canonicalIngredient("디판테놀")).toBe("판테놀");
     expect(canonicalIngredient("소듐하이알루로네이트")).toBe(
       "히알루론산(소듐하이알루로네이트)",
