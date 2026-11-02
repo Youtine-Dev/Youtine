@@ -205,6 +205,26 @@
 
 /* ── 생성 결과 ──────────────────────────────────────────────────── */
 
+/* 결과 제목 행 — 제목은 왼쪽, '루틴 보러 가기'는 오른쪽 끝(사용자 요청 2026-11-02). */
+.resultHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* 좁은 폰에서는 버튼 자리를 지키고 제목이 줄바꿈된다. */
+.resultHead .resultTitle {
+  min-width: 0;
+}
+
+/* 아래 768px 규칙의 `flex: 1` 은 하단 버튼 줄용 — 제목 행에서는 늘어나지 않는다. */
+.resultHead .cta {
+  flex: none;
+}
+
 .resultTitle {
   display: flex;
   align-items: center;

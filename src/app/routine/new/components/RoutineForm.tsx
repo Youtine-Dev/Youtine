@@ -165,10 +165,16 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
   if (status === "done" && saved.length > 0) {
     return (
       <section className={styles.result} role="status">
-        <p className={styles.resultTitle}>
-          <Icon name="check_circle" filled size="sm" />
-          {focus ? "기타 루틴을 만들었어요" : "루틴을 만들었어요"}
-        </p>
+        <div className={styles.resultHead}>
+          <p className={styles.resultTitle}>
+            <Icon name="check_circle" filled size="sm" />
+            {focus ? "기타 루틴을 만들었어요" : "루틴을 만들었어요"}
+          </p>
+          <Link className={styles.cta} href="/routine">
+            <Icon name="check_circle" filled size="sm" />
+            루틴 보러 가기
+          </Link>
+        </div>
 
         {saved.map((routine) => (
           <article key={routine.id} className={styles.routine}>
@@ -201,10 +207,6 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
         ))}
 
         <div className={styles.resultActions}>
-          <Link className={styles.cta} href="/routine">
-            <Icon name="check_circle" filled size="sm" />
-            루틴 보러 가기
-          </Link>
           <button type="button" className={styles.again} onClick={reset}>
             다시 만들기
           </button>
