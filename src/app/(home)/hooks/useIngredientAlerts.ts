@@ -4,10 +4,14 @@ import { useProducts } from "@/lib/data";
 import { realWarnings } from "@/lib/warnings";
 import type { Product } from "@/types/skincare";
 
+/**
+ * 제품 하나 = 알림 하나. 예전엔 문장마다 한 칸이라 제품 5개에 27칸·화면 4개 높이가 되고
+ * 같은 제품명이 4~6번 반복됐다(2026-11-02 실측) — 제품별로 묶는다.
+ * 제품 전체를 들고 있는 건 누르면 선반과 같은 제품 상세 모달을 열기 때문이다.
+ */
 export type IngredientAlertItem = {
-  id: string;
-  productName: string;
-  warning: string;
+  product: Product;
+  warnings: string[];
 };
 
 export type IngredientAlertsState =
@@ -22,13 +26,12 @@ export type IngredientAlertsState =
  * 그런 제품은 `no-warnings` 로 떨어진다(분석은 끝났으니 pending 도 아니다).
  */
 function toAlerts(products: Product[]): IngredientAlertItem[] {
-  return products.flatMap((product) =>
-    realWarnings(product.warnings ?? []).map((warning, index) => ({
-      id: `${product.id}-${index}`,
-      productName: product.productName,
-      warning,
-    })),
-  );
+  return products
+    .map((product) => ({
+      product,
+      warnings: realWarnings(product.warnings ?? []),
+    }))
+    .filter((alert) => alert.warnings.length > 0);
 }
 
 /**
