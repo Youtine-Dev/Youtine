@@ -12,7 +12,6 @@
 }
 
 /* 자식 래퍼가 그리드 셀을 차지하고, 카드 자신은 높이를 꽉 채운다 */
-.full > *,
 .wide > *,
 .narrow > * {
   height: 100%;
@@ -26,10 +25,6 @@
   .main {
     grid-template-columns: repeat(12, 1fr);
     gap: 24px;
-  }
-
-  .full {
-    grid-column: span 12;
   }
 
   .wide {

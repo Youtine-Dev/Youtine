@@ -1,6 +1,5 @@
 import { IngredientAlerts } from "./components/IngredientAlerts";
 import { NextStepCard } from "./components/NextStepCard";
-import { RoutineStarter } from "./components/RoutineStarter";
 import { ScanCard } from "./components/ScanCard";
 import { SkinHealthCard } from "./components/SkinHealthCard";
 
@@ -15,10 +14,6 @@ export default function Home() {
       <TopAppBar title="홈" />
 
       <main id="main" className={styles.main}>
-        <div className={styles.full}>
-          <RoutineStarter />
-        </div>
-
         <div className={styles.wide}>
           <SkinHealthCard />
         </div>
