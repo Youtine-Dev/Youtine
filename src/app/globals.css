@@ -72,7 +72,10 @@
   --on-error-container: #93000a;
 
   /* 기존 화면이 쓰던 이름 — 위 토큰의 별칭이다. 새 코드는 원본 이름을 쓸 것 */
-  --background: #f8f9fa;
+  /* 페이지 바탕은 --surface(#f8f9fa)가 아니라 한 단계 아래 --surface-container 값이다.
+     흰 카드(--surface-container-lowest)와 대비가 1.05 라 섹션 구분이 안 보였다(2026-11-02
+     사용자 보고) → 1.16. 다크는 아래 블록이 따로 정한다. */
+  --background: #edeeef;
   --foreground: #191c1d;
   --muted: #424844;
   --border: #c2c8c2;
@@ -156,8 +159,10 @@
   --page-inline: clamp(16px, 4vw, 40px);
 
   /* ── 그림자 ──────────────────────────────────────────────────── */
-  --shadow-card: 0 4px 20px rgb(26 43 68 / 4%);
-  --shadow-card-hover: 0 8px 32px rgb(26 43 68 / 8%);
+  /* 예전 단일 4% 그림자는 흰 바탕에서 거의 안 보였다 — 가장자리를 잡는 짧은 그림자를 더한다 */
+  --shadow-card: 0 1px 3px rgb(26 43 68 / 6%), 0 4px 16px rgb(26 43 68 / 6%);
+  --shadow-card-hover:
+    0 2px 6px rgb(26 43 68 / 8%), 0 8px 24px rgb(26 43 68 / 8%);
   --glass-blur: 12px;
   --glass-fill: rgb(255 255 255 / 85%);
 

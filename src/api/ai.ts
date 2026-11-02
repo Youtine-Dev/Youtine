@@ -154,6 +154,20 @@ export function recommendConcernIngredients(input: { wonder: string }) {
 }
 
 /**
+ * 성분이 화장품에서 하는 역할 — 프롬프트 출력 `{ role }` 에 라우트가 대표명 `name` 을 붙인다.
+ * `role: null` 은 정상 응답이다("널리 알려진 역할을 확신할 수 없다", 프롬프트 규칙 1·5).
+ */
+export type IngredientRoleResponse = { name: string; role: string | null };
+
+/**
+ * 성분 칩 하나의 역할 설명. 공유 캐시가 있으면 즉시, 없으면 AI(실측 10~30초) 후 저장된다.
+ * `name` 은 칩에 보이는 라벨 원문 그대로 보낸다 — 정규화는 서버가 한다.
+ */
+export function fetchIngredientRole(input: { name: string }) {
+  return api.post<IngredientRoleResponse>("/ai/ingredient-role", input);
+}
+
+/**
  * 선반 전체 상호작용 분석 (시너지·충돌·타입별 주의·추가 추천).
  * **선반은 서버가 직접 읽는다.**
  *

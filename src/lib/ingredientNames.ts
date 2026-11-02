@@ -46,7 +46,8 @@ const SYNONYMS: readonly (readonly string[])[] = [
     "Ceramide NG",
   ],
   ["살리실릭애씨드", "Salicylic Acid"],
-  ["글라이콜릭애씨드", "Glycolic Acid"],
+  // "글리콜릭애씨드" 표기도 카탈로그에 있다(실측 2개 제품) — 없으면 같은 성분이 두 키로 갈라졌다.
+  ["글라이콜릭애씨드", "Glycolic Acid", "글리콜릭애씨드"],
   ["콜레스테롤", "Cholesterol"],
   ["스쿠알란", "Squalane"],
   ["마데카소사이드", "Madecassoside"],
@@ -89,8 +90,11 @@ const SYNONYMS: readonly (readonly string[])[] = [
   ["메틸아이소치아졸리논", "Methylisothiazolinone"],
 ];
 
-/** 비교 키 — 영문 대소문자·공백 차이("Glycolic  acid")는 같은 표기로 본다. */
-function nameKey(name: string): string {
+/**
+ * 비교 키 — 영문 대소문자·공백 차이("Glycolic  acid")는 같은 표기로 본다.
+ * 성분 역할 캐시(`ingredient_roles.name_key`)도 이 키로 저장한다 — 재구현 금지.
+ */
+export function nameKey(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "");
 }
 

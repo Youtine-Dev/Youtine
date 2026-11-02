@@ -9,38 +9,93 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   list-style: none;
+  /* 한글은 기본이 글자 단위 줄바꿈이라 "독도 토/너"처럼 끊겼다 — 어절 단위로.
+     공백 없는 긴 성분 나열(A·B·C·…)은 넘치지 않게 어디서든 끊는다. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  /* 아래 @container 가 이 목록의 폭을 본다(뷰포트가 아니라 — 데스크톱 벤토의 좁은 칸) */
+  container-type: inline-size;
 }
 
-/* 실데이터엔 "성분 충돌" 같은 별도 종류가 없다(주의사항 프롬프트는 warning 하나뿐) —
-   그래서 kind 별 변주 없이 이 모양 하나만 쓴다. */
+/*
+ * 제품 하나 = 모달을 여는 버튼 하나(2026-11-02). 예전엔 문장마다 빨간 상자라 27개가 전부
+ * 같은 급으로 보였다 — 배경은 차분하게 두고 빨강은 아이콘·건수에만 쓴다.
+ * 실데이터엔 "성분 충돌" 같은 별도 종류가 없다(주의사항 프롬프트는 warning 하나뿐) —
+ * 그래서 kind 별 변주 없이 이 모양 하나만 쓴다.
+ */
 .item {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--error-container);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--error-container) 30%, transparent);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  /* 터치 타깃 44px 이상 */
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-container-low);
+  text-align: start;
+  transition: background 0.2s ease;
+}
+
+.item:hover {
+  background: var(--surface-container);
 }
 
 .itemIcon {
   flex-shrink: 0;
-  margin-top: 2px;
   color: var(--error);
 }
 
 .itemTitle {
-  margin-bottom: 4px;
+  flex: 1;
+  min-width: 0;
+  font: var(--text-body-md);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
   color: var(--on-surface);
 }
 
-.itemDetail {
-  font: var(--text-body-md);
-  font-size: 12px;
-  line-height: 16px;
+.count {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--error-container) 60%, transparent);
+  color: var(--on-error-container);
+  font: var(--text-label-sm);
+}
+
+.chevron {
+  flex-shrink: 0;
   color: var(--on-surface-variant);
+}
+
+/*
+ * 좁은 칸(데스크톱 1024~1200px 의 span 4 — 목록 폭 약 165~250px)에선 한 줄에
+ * 아이콘·건수·chevron 이 고정 약 150px 를 먹어 제품명이 12~64px 로 줄고 한두 글자마다
+ * 끊겼다(실측). 경고 아이콘을 빼고 건수를 제품명 아래로 내려 제품명 폭을 되찾는다.
+ */
+@container (max-width: 259px) {
+  .item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    row-gap: 4px;
+  }
+
+  .item .itemIcon {
+    display: none;
+  }
+
+  .count {
+    justify-self: start;
+  }
+
+  .item .chevron {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
 }
 
 /* 로딩/빈 상태 3종 공용 — 아이콘 + 한 줄 안내문 */
@@ -68,5 +123,9 @@
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation: none;
+  }
+
+  .item {
+    transition: none;
   }
 }

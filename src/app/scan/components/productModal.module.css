@@ -334,6 +334,89 @@
   font: var(--text-body-md);
 }
 
+/* ── 성분 칩 → 역할 설명 (2026-11-02) ─────────────────────────────
+   인기 제품 모달의 칩만 버튼이다. 검색 모달의 .ingredient 는 저장 전 AI 추출값이라
+   표시 전용으로 둔다(모디파이어로 분리 — .ingredient 자체는 건드리지 않는다). */
+.ingredientButton {
+  display: block;
+  position: relative;
+  text-align: start;
+  transition: background 0.2s ease;
+}
+
+/* 칩 높이 38px → 누르는 영역 44px. 절대 위치의 기준은 테두리 **안쪽**(padding box, 36px)이라
+   4px 씩 넓혀야 바깥으로 3px(=간격 6px 의 절반) 나가 44px 가 된다(-3px 이면 42px 였다). */
+.ingredientButton::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
+.ingredientButton:hover {
+  background: var(--surface-container-low);
+}
+
+/* 제품 모달 위에 한 겹 더 — 같은 72% 스크림·블러를 또 깔면 아래 제품 모달이 거의 검게 묻힌다.
+   "작게 열리는" 보조 창이라 옅게 둔다. */
+.overlayNested {
+  background: color-mix(in srgb, var(--scrim) 40%, transparent);
+  backdrop-filter: none;
+}
+
+.sheetSmall {
+  max-width: 380px;
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* 성분명은 길고(INCI) 공백이 없을 수 있다 — 가운데 정렬 대신 본문과 같은 왼쪽 선에서 줄바꿈 */
+.roleTitle {
+  padding-left: 8px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.roleText {
+  font: var(--text-body-md);
+  line-height: 1.6;
+  color: var(--on-surface);
+  word-break: keep-all;
+}
+
+.roleWaiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--text-body-md);
+  color: var(--on-surface-variant);
+}
+
+.roleMeta {
+  font: var(--text-body-md);
+  font-size: 14px;
+  color: var(--on-surface-variant);
+  word-break: keep-all;
+}
+
+.roleMeta strong {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+/* IngredientDetailModal 의 .disclaimer 와 같은 값 */
+.roleDisclaimer {
+  color: var(--outline);
+  font: var(--text-label-sm);
+  letter-spacing: var(--tracking-label-sm);
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ingredientButton {
+    transition: none;
+  }
+}
+
 /* ── 주의사항 (인기 제품 모달) ─────────────────────────── */
 
 .warnings {
@@ -497,6 +580,54 @@
   color: var(--on-surface-variant);
   font: var(--text-body-md);
   text-align: center;
+}
+
+/*
+ * 안내(왼쪽)와 빼기 버튼(오른쪽)을 한 줄에(사용자 요청 2026-11-02 — 예전엔 위아래).
+ * 버튼은 이 줄에서만 한 단계 작게 — 기본 .secondary(좌우 24px·본문 lg)로는 360px 폰에서
+ * 안내 칸이 거의 남지 않는다. 다른 모달의 .secondary 는 그대로다.
+ */
+.shelfRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.shelfRow .shelfNote {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: start;
+  word-break: keep-all;
+  /* 버튼(16px 굵게)보다 한 단계 아래 — 상태 안내다 */
+  font-size: 14px;
+}
+
+/* 칸이 좁아지면 flex 항목인 아이콘이 먼저 눌려 잘렸다(360px 실측) */
+.shelfNoteIcon {
+  flex-shrink: 0;
+}
+
+.shelfRow .secondary {
+  flex: none;
+  min-height: 48px;
+  padding: 10px 16px;
+  gap: 6px;
+  font: var(--text-body-md);
+  font-weight: 600;
+}
+
+/* 확인 단계: 긴 확인 문장이 한 줄을 다 쓰고, '네, 빼기'·'취소'가 아래 줄을 글 길이만큼
+   나눈다. 반반(1 1 0)이면 360px 에서 '네, 선반에서 빼기'가 두 줄로 꺾여 취소와 높이가
+   어긋났다(69 vs 48px 실측). 더 좁아 한 줄에 못 들어가면 두 버튼이 위아래로 내려간다. */
+.shelfRowConfirm .shelfNote {
+  flex-basis: 100%;
+}
+
+.shelfRowConfirm .secondary {
+  flex: 1 1 auto;
+  white-space: nowrap;
 }
 
 /* 빈 성분 안내 아래의 다음 행동 — 모달을 닫고 성분표 촬영으로 보낸다. */

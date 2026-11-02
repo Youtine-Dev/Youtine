@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+
+import { PopularProductModal } from "@/app/scan/components/PopularProductModal";
 import { DataState } from "@/components/DataState/DataState";
 import { Icon } from "@/components/Icon";
 import { SentenceBreak } from "@/components/SentenceBreak";
@@ -15,6 +18,12 @@ import styles from "./IngredientAlerts.module.css";
  */
 export function IngredientAlerts() {
   const state = useIngredientAlerts();
+  // id 로 들고 있다 — 재검증으로 그 제품이 목록에서 빠지면 모달도 저절로 닫힌다.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const opened =
+    state.kind === "ready"
+      ? state.alerts.find((alert) => alert.product.id === openId)
+      : undefined;
 
   return (
     <section className={card.card}>
@@ -69,16 +78,27 @@ export function IngredientAlerts() {
 
       {state.kind === "ready" && (
         <>
+          {/*
+            홈엔 요약(제품·건수)만 두고 누르면 모달로 연다. 제자리에서 펼치면(details) 접을 때
+            페이지가 줄어 스크롤이 당겨지고, 바로 위 '다음 단계' 버튼이 멈춘 마우스 밑으로
+            밀려 들어와 hover 색으로 바뀌었다(2026-11-02 재현). 모달은 페이지 높이를 안 바꾼다.
+          */}
           <ul className={styles.list}>
-            {state.alerts.map((alert) => (
-              <li key={alert.id} className={styles.item}>
-                <Icon name="warning" className={styles.itemIcon} />
-                <div>
-                  <h3 className={`${card.label} ${styles.itemTitle}`}>
-                    {alert.productName}
-                  </h3>
-                  <p className={styles.itemDetail}>{alert.warning}</p>
-                </div>
+            {state.alerts.map(({ product, warnings }) => (
+              <li key={product.id}>
+                <button
+                  type="button"
+                  className={styles.item}
+                  onClick={() => setOpenId(product.id)}
+                  aria-haspopup="dialog"
+                >
+                  <Icon name="warning" className={styles.itemIcon} />
+                  <span className={styles.itemTitle}>
+                    {product.productName}
+                  </span>
+                  <span className={styles.count}>주의 {warnings.length}</span>
+                  <Icon name="chevron_right" className={styles.chevron} />
+                </button>
               </li>
             ))}
           </ul>
@@ -89,6 +109,16 @@ export function IngredientAlerts() {
             </p>
           )}
         </>
+      )}
+
+      {/* 스캔 › 선반에서 여는 것과 같은 제품 상세 모달(사용자 요청 2026-11-02) —
+          전부 내 선반 제품이라 선반과 똑같이 alreadyOnShelf(담기 대신 빼기). */}
+      {opened && (
+        <PopularProductModal
+          product={opened.product}
+          onClose={() => setOpenId(null)}
+          alreadyOnShelf
+        />
       )}
     </section>
   );
