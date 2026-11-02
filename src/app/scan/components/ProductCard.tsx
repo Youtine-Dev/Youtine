@@ -54,10 +54,6 @@ export function ProductCard({
 
   const body = (
     <>
-      {flagged && (
-        <Icon name="warning" size="sm" filled className={styles.flag} />
-      )}
-
       <span className={styles.thumb}>
         {image && image !== brokenSrc ? (
           // 이미 축소된 data URL 이라 next/image 최적화가 필요 없다.
@@ -81,6 +77,10 @@ export function ProductCard({
       <h3 className={styles.name}>{name}</h3>
       {note && (
         <p className={`${styles.note} ${flagged ? styles.noteAlert : ""}`}>
+          {/* 주의 마크는 문구 바로 왼쪽(사용자 요청 2026-11-02 — 예전엔 카드 오른쪽 위 구석) */}
+          {flagged && (
+            <Icon name="warning" size="sm" filled className={styles.flag} />
+          )}
           {note}
         </p>
       )}

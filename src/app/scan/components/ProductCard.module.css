@@ -91,10 +91,14 @@ button.card:hover {
   border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
 }
 
-.flag {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+/* 문구(12px) 줄 안의 16px 아이콘 — 글자 가운데에 맞춰 내린다. 줄 상자는 -webkit-box(2줄 말줄임)라
+   flex 로 바꾸지 않고 인라인으로 둔다.
+   크기는 여기서 다시 준다 — Icon 의 size="sm"(16px)이 아이콘 폰트 기본 24px 에 덮여 줄 높이가
+   두 줄로 늘고 아이콘이 글자보다 5px 떠 있었다(실측). 두 클래스로 우선순위를 올린다. */
+.note .flag {
+  margin-right: 2px;
+  font-size: 16px;
+  vertical-align: -3px;
   color: var(--error);
 }
 
