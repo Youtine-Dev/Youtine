@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { Icon } from "@/components/Icon";
+
 import styles from "./StepTimer.module.css";
 
 function format(seconds: number): string {
@@ -20,10 +22,16 @@ function format(seconds: number): string {
 export function StepTimer({
   seconds,
   onPhoto,
+  icon,
 }: {
   seconds: number;
   /** 제품 사진 위에 얹혔는가 — 글자색·스크림 대비가 달라진다. */
   onPhoto: boolean;
+  /**
+   * 사진이 없을 때의 단계 아이콘. 숫자 **위에 한 덩어리로** 놓는다 — 예전엔 히어로 정중앙에
+   * 따로 깔려 타이머 숫자와 겹쳤다(사용자 보고 2026-11-02).
+   */
+  icon?: string;
 }) {
   const [left, setLeft] = useState(seconds);
   // 재개(시작) 시점의 남은 초 — 파생 계산의 기준점
@@ -89,6 +97,7 @@ export function StepTimer({
         }}
         aria-label={`남은 시간 ${format(left)} — ${hint}`}
       >
+        {icon && <Icon name={icon} filled className={styles.icon} />}
         <span className={styles.time}>{format(left)}</span>
         <span className={styles.hint}>{hint}</span>
       </button>

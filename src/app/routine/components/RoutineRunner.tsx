@@ -172,11 +172,17 @@ export function RoutineRunner({
                 onError={() => setBrokenPhoto(photo)}
               />
             ) : (
-              <Icon
-                name={stepIcon(current.routineName)}
-                filled
-                className={styles.photoIcon}
-              />
+              /*
+                타이머가 있으면 아이콘은 타이머 묶음(숫자 위)으로 들어간다 — 정중앙 배경에
+                두면 숫자와 겹친다(2026-11-02). 타이머가 없는 단계만 배경에 깐다.
+              */
+              current.estimatedTime <= 0 && (
+                <Icon
+                  name={stepIcon(current.routineName)}
+                  filled
+                  className={styles.photoIcon}
+                />
+              )
             )}
 
             {/*
@@ -212,6 +218,7 @@ export function RoutineRunner({
                 key={current.id}
                 seconds={current.estimatedTime}
                 onPhoto={photo !== null}
+                icon={photo ? undefined : stepIcon(current.routineName)}
               />
             )}
 
