@@ -224,10 +224,22 @@ export function PopularProductModal({
              * 이미 담긴 제품 — 담기 대신 그 사실과 빼기(I1).
              * 빼기 버튼은 확인 전후로 **같은 자리의 같은 요소**다. 바꿔 끼우면 누른 순간
              * 포커스가 body 로 빠진다(키보드 사용자는 확인 버튼을 다시 찾아야 한다).
+             * 안내와 버튼은 좌우 한 줄(사용자 요청 2026-11-02). 확인 단계는 문장이 길고
+             * 취소가 붙어 안내가 한 줄을 다 쓰고, 두 버튼이 그 아래에서 좌우로 선다.
              */
-            <>
+            <div
+              className={
+                confirmingRemove
+                  ? `${styles.shelfRow} ${styles.shelfRowConfirm}`
+                  : styles.shelfRow
+              }
+            >
               <p className={styles.shelfNote} aria-live="polite">
-                <Icon name="inventory_2" size="sm" />
+                <Icon
+                  name="inventory_2"
+                  size="sm"
+                  className={styles.shelfNoteIcon}
+                />
                 {confirmingRemove
                   ? "선반에서 뺄까요? 리포트 분석에서도 빠지고, 나중에 다시 담을 수 있어요."
                   : "이미 내 선반에 있어요"}
@@ -268,7 +280,7 @@ export function PopularProductModal({
                   취소
                 </button>
               )}
-            </>
+            </div>
           ) : (
             <button
               type="button"

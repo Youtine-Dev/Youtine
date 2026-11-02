@@ -499,6 +499,54 @@
   text-align: center;
 }
 
+/*
+ * 안내(왼쪽)와 빼기 버튼(오른쪽)을 한 줄에(사용자 요청 2026-11-02 — 예전엔 위아래).
+ * 버튼은 이 줄에서만 한 단계 작게 — 기본 .secondary(좌우 24px·본문 lg)로는 360px 폰에서
+ * 안내 칸이 거의 남지 않는다. 다른 모달의 .secondary 는 그대로다.
+ */
+.shelfRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.shelfRow .shelfNote {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: start;
+  word-break: keep-all;
+  /* 버튼(16px 굵게)보다 한 단계 아래 — 상태 안내다 */
+  font-size: 14px;
+}
+
+/* 칸이 좁아지면 flex 항목인 아이콘이 먼저 눌려 잘렸다(360px 실측) */
+.shelfNoteIcon {
+  flex-shrink: 0;
+}
+
+.shelfRow .secondary {
+  flex: none;
+  min-height: 48px;
+  padding: 10px 16px;
+  gap: 6px;
+  font: var(--text-body-md);
+  font-weight: 600;
+}
+
+/* 확인 단계: 긴 확인 문장이 한 줄을 다 쓰고, '네, 빼기'·'취소'가 아래 줄을 글 길이만큼
+   나눈다. 반반(1 1 0)이면 360px 에서 '네, 선반에서 빼기'가 두 줄로 꺾여 취소와 높이가
+   어긋났다(69 vs 48px 실측). 더 좁아 한 줄에 못 들어가면 두 버튼이 위아래로 내려간다. */
+.shelfRowConfirm .shelfNote {
+  flex-basis: 100%;
+}
+
+.shelfRowConfirm .secondary {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+
 /* 빈 성분 안내 아래의 다음 행동 — 모달을 닫고 성분표 촬영으로 보낸다. */
 .emptyAction {
   display: flex;
