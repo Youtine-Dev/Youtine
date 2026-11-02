@@ -22,6 +22,16 @@
   transform: scale(0.99);
 }
 
+/*
+ * 사진이 없을 때의 단계 아이콘 — 숫자 위에 같은 묶음으로 둔다(겹침 방지, 2026-11-02).
+ * 숫자처럼 히어로 칸 폭(cqi) 기준이라 768px 의 좁은 열에서도 넘치지 않는다.
+ * `.timer` 로 한 단계 올린다 — Icon 의 크기 클래스(.md 24px)와 우선순위가 같아 밀렸다.
+ */
+.timer .icon {
+  font-size: clamp(40px, 16cqi, 64px);
+  color: var(--primary-fixed);
+}
+
 /* 뷰포트(vw)가 아니라 히어로 칸 폭(cqi) 기준 — 768px 의 좁은 열에서 88px 로 넘치던 원인(M15②). */
 .time {
   font-size: clamp(48px, 20cqi, 88px);

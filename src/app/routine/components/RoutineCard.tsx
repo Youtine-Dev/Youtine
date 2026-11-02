@@ -171,7 +171,7 @@ export function RoutineCard({
   }
 
   return (
-    <li>
+    <li className={styles.item}>
       <details className={`${styles.card} ${done ? styles.cardDone : ""}`}>
         <summary className={styles.summary}>
           <span className={styles.badge} aria-hidden="true">
@@ -354,6 +354,27 @@ export function RoutineCard({
           </p>
         )}
       </details>
+
+      {/*
+        펼치지 않고 바로 시작(사용자 요청 2026-11-02). summary 밖에 둔다 — 안에 넣으면
+        버튼(summary) 안의 링크라 접근성 규칙 위반이고, 누를 때 카드 펼침과 엉킨다.
+        details 바로 뒤라서 CSS 가 펼친 상태에서 숨긴다(아래 버튼 줄과 중복).
+        편집 중엔 그리지 않는다 — 아래 버튼 줄처럼 시작 경로를 막는다(접어서 누르면
+        저장본으로 실행되고 초안이 말없이 사라졌다).
+      */}
+      {!draft && (
+        <Link
+          href={`/routine/${routine.id}/1` as Route}
+          className={styles.quickStart}
+          aria-label={`${routine.name} ${done ? "다시 하기" : "시작하기"}`}
+        >
+          <Icon name={done ? "replay" : "play_arrow"} filled size="sm" />
+          {/* 좁은 화면에선 아이콘만 남긴다(CSS) — 이름은 aria-label 이 들고 있다 */}
+          <span className={styles.quickStartText}>
+            {done ? "다시 하기" : "시작하기"}
+          </span>
+        </Link>
+      )}
     </li>
   );
 }

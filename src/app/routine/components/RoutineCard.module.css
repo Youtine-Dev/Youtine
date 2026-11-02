@@ -84,6 +84,74 @@
   transform: rotate(180deg);
 }
 
+/* ── 접힌 머리 행의 바로 시작 버튼(사용자 요청 2026-11-02) ───────────────
+   버튼은 summary 밖(details 다음 형제)에 있고 머리 행 위에 겹쳐 놓는다.
+   그 자리는 chevron 앞 여백으로 비워 두어 제목이 버튼 밑으로 들어가지 않게 한다. */
+
+.item {
+  --quick-start-w: 104px;
+  position: relative;
+}
+
+.card:not([open]) .chevron {
+  /* 버튼 폭 + 정보 영역과의 간격 12 */
+  margin-left: calc(var(--quick-start-w) + 12px);
+}
+
+.quickStart {
+  position: absolute;
+  /* 접힌 카드의 세로 중앙 = 머리 행의 세로 중앙(위아래 padding 이 같다). 제목이 여러 줄이어도
+     배지·chevron 과 같은 높이에 선다. 펼치면 버튼이 숨겨지므로 접힌 상태만 계산하면 된다. */
+  top: 50%;
+  translate: 0 -50%;
+  /* 카드 padding 16 + chevron 24 + 간격 12 */
+  right: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: var(--quick-start-w);
+  /* 터치 타깃 44px */
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: var(--text-body-md);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s ease;
+}
+
+.quickStart:hover {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+/* 펼치면 아래 버튼 줄에 같은 '시작하기'가 있다 — 중복을 숨긴다 */
+.card[open] + .quickStart {
+  display: none;
+}
+
+/*
+ * 좁은 폰에선 원형 아이콘 버튼(44px)으로 줄인다 — 글자 버튼(104px)이면 360px 에서
+ * 정보 칸이 76px 로 좁아져 머리 행이 44px → 102~134px 로 늘었다(실측).
+ */
+@media (max-width: 479px) {
+  .item {
+    --quick-start-w: 44px;
+  }
+
+  .quickStart {
+    padding: 0;
+  }
+
+  .quickStartText {
+    display: none;
+  }
+}
+
 /* ── 펼친 내용 ───────────────────────────────────────────────── */
 
 .desc {

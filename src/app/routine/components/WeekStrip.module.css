@@ -5,13 +5,44 @@
   box-shadow: var(--shadow-card);
 }
 
-.heading {
+/* 제목 행 — 제목은 왼쪽, '자세히 보기'는 오른쪽 끝(사용자 요청 2026-11-02). */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
   padding: 0 8px;
-  font: var(--text-label-sm);
-  letter-spacing: var(--tracking-label-sm);
-  color: var(--on-surface-variant);
-  text-transform: uppercase;
+}
+
+/* 예전엔 12px 라벨이라 카드 제목으로 읽히지 않았다 — 섹션 제목 급으로 키운다. */
+.heading {
+  font: var(--text-headline-md);
+  color: var(--on-surface);
+}
+
+.more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  /* 터치 타깃 44px 이상 */
+  min-height: 44px;
+  margin-right: -8px;
+  padding: 0 4px 0 12px;
+  border-radius: var(--radius-full);
+  font: var(--text-body-md);
+  font-weight: 600;
+  color: var(--primary);
+  transition: background 0.2s ease;
+}
+
+.more:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.more:disabled {
+  opacity: 0.5;
 }
 
 .days {
@@ -72,4 +103,110 @@
 
 .upcoming {
   border: 1px dashed var(--outline);
+}
+
+/* ── 이번 달 캘린더 모달 — 스크림·시트는 앱의 다른 모달(RoutineList 삭제 확인)과 같은 규칙 ── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--scrim) 72%, transparent);
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.sheet {
+  width: 100%;
+  max-width: 380px;
+  /* 6줄 달(약 430px)이 눕힌 폰(~360px)에서 위아래로 잘리지 않게 — 시트 안에서 스크롤한다 */
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-container-lowest);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheetTitle {
+  font: var(--text-headline-md);
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+  border-radius: var(--radius-full);
+  color: var(--on-surface-variant);
+}
+
+.close:hover {
+  background: var(--surface-container);
+}
+
+.summary {
+  margin: 2px 0 16px;
+  font: var(--text-body-md);
+  color: var(--on-surface-variant);
+}
+
+.summary strong {
+  color: var(--primary);
+}
+
+/* 요일 머리와 날짜 칸은 같은 7열 — 월요일 시작(주간 스트립과 같은 기준) */
+.weekdays,
+.month {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  justify-items: center;
+}
+
+.weekdays {
+  margin-bottom: 8px;
+  font: var(--text-label-sm);
+  letter-spacing: var(--tracking-label-sm);
+  color: var(--on-surface-variant);
+}
+
+.month {
+  row-gap: 8px;
+  list-style: none;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--outline-variant);
+  list-style: none;
+  font: var(--text-label-sm);
+  color: var(--on-surface-variant);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 범례는 표시 모양만 보여 준다 — 날짜 원과 같은 상태 클래스를 작게 */
+.legendMarker {
+  width: 14px;
+  height: 14px;
+  box-shadow: none;
 }
