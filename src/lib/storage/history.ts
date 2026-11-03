@@ -22,6 +22,11 @@ export type RunStart = {
   step?: number;
   /** '건너뛰기'로 지나친 단계 — 완료 기록에서 뺀다(I10). */
   skippedStepIds?: string[];
+  /**
+   * 전부 건너뛰어 기록 없이 끝낸 수행(4라운드 Q2) — 진행 중이 아니다. 지우지 않고 남기는 건
+   * 완료 화면을 새로고침해도 '시작 표시 없음'의 수동 기록(전 단계 완료)이 뜨지 않게 하려는 것.
+   */
+  consumed?: boolean;
 };
 
 /**
@@ -30,12 +35,12 @@ export type RunStart = {
  */
 const RUN_START_TTL_MS = 6 * 60 * 60 * 1000;
 
-/** 만료되지 않은 표시만 돌려준다. 시각이 깨졌으면 만료로 본다. */
+/** 만료되지 않은 표시만 돌려준다. 시각이 깨졌거나 소비됐으면 진행 중이 아니다. */
 export function liveRunStart(
   start: RunStart | null,
   now: number = Date.now(),
 ): RunStart | null {
-  if (!start) return null;
+  if (!start || start.consumed) return null;
   const at = Date.parse(start.startedAt);
   return Number.isFinite(at) && now - at < RUN_START_TTL_MS ? start : null;
 }
@@ -79,7 +84,12 @@ export function markRunStep(routineId: string, step: number): void {
     if (live.step !== step) persist({ ...live, step });
     return;
   }
-  if (step !== 1) return;
+  if (step !== 1) {
+    // 소비 표시(전부 건너뜀)는 완료 화면 새로고침 방어용이라 수행 화면에 다시 들어오면 할 일이
+    // 끝났다. 남기면 중간 단계로 들어와 실제로 마친 수행이 옛 '건너뜀' 화면에 가려 기록할 길이 없다.
+    if (load<RunStart | null>(RUN_START_KEY, null)?.consumed) clearRunStart();
+    return;
+  }
   persist({
     routineId,
     startedAt: new Date().toISOString(),
@@ -108,4 +118,12 @@ export function setStepSkipped(
  */
 export function clearRunStart(): boolean {
   return remove(RUN_START_KEY);
+}
+
+/**
+ * 전부 건너뛴 수행을 기록 없이 '소비됨'으로 남긴다(Q2). `liveRunStart` 가 null 로 보므로
+ * 이어서 하기·단계 기록에는 없는 것과 같고, 다음 단계 진입(`markRunStep`)이 덮어쓰거나 지운다.
+ */
+export function consumeRunStart(start: RunStart): void {
+  persist({ ...start, consumed: true });
 }

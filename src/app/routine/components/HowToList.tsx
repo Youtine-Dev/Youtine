@@ -25,6 +25,9 @@ export function HowToList({ items }: { items: readonly string[] }) {
     });
   }
 
+  // 사용법이 빈 단계에 제목만 있는 빈 카드를 그리지 않는다(r4 m33, StepWarnings 와 같은 규칙).
+  if (items.length === 0) return null;
+
   return (
     <section className={styles.card}>
       <h3 className={styles.heading}>이렇게 사용하세요</h3>

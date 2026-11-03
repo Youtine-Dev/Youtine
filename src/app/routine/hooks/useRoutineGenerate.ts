@@ -5,12 +5,18 @@ import { useCallback, useEffect, useState } from "react";
 import { generateRoutine, type RoutineStepResponse } from "@/api/ai";
 import { ApiError } from "@/api/client";
 import { saveProfile, saveRoutines, useProducts } from "@/lib/data";
-import type { Routine, RoutineStep, RoutineTime } from "@/types/skincare";
+import type {
+  Routine,
+  RoutineStep,
+  RoutineTime,
+  SkinProfile,
+} from "@/types/skincare";
 
-import type { RoutineCondition } from "../condition";
+import { ROUTINE_CONDITION, type RoutineCondition } from "../condition";
 import { TIME_LABEL, totalMinutes } from "../routineTime";
 
-export type GenerateStatus = "idle" | "working" | "done" | "error";
+/** `saving` = '저장 다시 시도' 중(AI 호출 없음). 첫 저장은 생성과 한 흐름이라 `working` 이다. */
+export type GenerateStatus = "idle" | "working" | "saving" | "done" | "error";
 
 export type GenerateInput = {
   /** 피부 고민 (프롬프트 `wonder`) */
@@ -114,6 +120,27 @@ const BUSY_TEXT: Partial<Record<number, string>> = {
   503: "지금 AI 요청이 많아요. 잠시 후 다시 시도해 주세요.",
 };
 
+/** 만들었지만 저장하지 못한 결과 — '저장 다시 시도'는 AI 를 다시 부르지 않고 이것만 보낸다(r4 m27). */
+type Unsaved = {
+  routines: Routine[];
+  /** 기본 세트일 때만 있다(r4 m28) */
+  profile: Omit<SkinProfile, "updatedAt"> | null;
+};
+
+function errorText(cause: unknown, generating: boolean): string {
+  if (cause instanceof ApiError) {
+    const body = cause.body as { message?: string } | null;
+    return (
+      (generating ? BUSY_TEXT[cause.status] : undefined) ??
+      body?.message ??
+      `루틴을 ${generating ? "만들지" : "저장하지"} 못했어요 (${cause.status})`
+    );
+  }
+  return cause instanceof Error
+    ? cause.message
+    : "알 수 없는 오류가 발생했어요.";
+}
+
 /**
  * 루틴 생성 — AI 호출 → 서버 저장 한 흐름.
  *
@@ -123,6 +150,7 @@ export function useRoutineGenerate() {
   const [status, setStatus] = useState<GenerateStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Routine[]>([]);
+  const [unsaved, setUnsaved] = useState<Unsaved | null>(null);
   /*
    * 선반은 서버에서 온다. 예전에는 `listProducts()` 를 콜백 안에서 동기로 읽었지만
    * 네트워크가 끼면서 **아직 안 온 상태와 진짜 빈 선반을 구분**해야 한다 —
@@ -140,6 +168,32 @@ export function useRoutineGenerate() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [status]);
+
+  /*
+   * 서버 저장. 90초 기다려 만든 결과가 저장에서 조용히 실패하면 사용자는 저장된 줄
+   * 안다 — 프로필·루틴 중 하나라도 실패하면 부분 성공으로 보고하지 않는다.
+   * 실패해도 결과는 버리지 않는다(r4 m27) — 재시도가 AI 재호출(90초)이 되면 안 된다.
+   */
+  const persist = useCallback(async (result: Unsaved) => {
+    try {
+      if (result.profile) await saveProfile(result.profile);
+      await saveRoutines(result.routines);
+      setUnsaved(null);
+      setSaved(result.routines);
+      setStatus("done");
+    } catch (cause: unknown) {
+      setUnsaved(result);
+      setStatus("error");
+      setError(errorText(cause, false));
+    }
+  }, []);
+
+  const retrySave = useCallback(async () => {
+    if (!unsaved) return;
+    setStatus("saving");
+    setError(null);
+    await persist(unsaved);
+  }, [unsaved, persist]);
 
   const generate = useCallback(
     async (input: GenerateInput) => {
@@ -172,8 +226,9 @@ export function useRoutineGenerate() {
       setStatus("working");
       setError(null);
       setSaved([]);
+      setUnsaved(null);
 
-      let saving = false;
+      const routines: Routine[] = [];
       try {
         const raw = await generateRoutine({
           wonder,
@@ -189,7 +244,6 @@ export function useRoutineGenerate() {
         // 한쪽이 비는 경우가 있다(제품이 적으면 저녁만 나오기도 한다).
         // 빈 시간대는 루틴을 만들지 않는다 — 단계 0개짜리 카드는 사용자에게 의미가 없다.
         const summary = raw.concern_summary ?? null;
-        const routines: Routine[] = [];
         if (raw.morning.length > 0)
           routines.push(toRoutine(raw.morning, "am", input.condition, summary));
         if (raw.evening.length > 0)
@@ -200,42 +254,42 @@ export function useRoutineGenerate() {
           setError("AI 가 루틴을 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
           return;
         }
-
-        // 서버 저장. 90초 기다려 만든 결과가 저장에서 조용히 실패하면 사용자는 저장된 줄
-        // 안다 — 프로필·루틴 중 하나라도 실패하면 부분 성공으로 보고하지 않고 catch 로 던진다.
-        saving = true;
-        await saveProfile({ wonder, usableTime: input.usableTime });
-        await saveRoutines(routines);
-
-        setSaved(routines);
-        setStatus("done");
       } catch (cause: unknown) {
         setStatus("error");
-
-        if (cause instanceof ApiError) {
-          const body = cause.body as { message?: string } | null;
-          setError(
-            (saving ? undefined : BUSY_TEXT[cause.status]) ??
-              body?.message ??
-              `루틴을 만들지 못했어요 (${cause.status})`,
-          );
-          return;
-        }
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "알 수 없는 오류가 발생했어요.",
-        );
+        setError(errorText(cause, true));
+        return;
       }
+
+      await persist({
+        routines,
+        /*
+         * 프로필은 **기본 세트일 때만** 덮는다(r4 m28) — 프로필 고민(wonder)은 '내 고민'
+         * 추천 캐시와 기본 루틴 프리필의 원본이라, 기타 루틴 입력이 그걸 바꾸면 안 된다.
+         */
+        profile:
+          input.condition === ROUTINE_CONDITION.basic
+            ? { wonder, usableTime: input.usableTime }
+            : null,
+      });
     },
-    [products],
+    [products, persist],
   );
 
   const reset = useCallback(() => {
     setStatus("idle");
     setError(null);
     setSaved([]);
+    setUnsaved(null);
   }, []);
 
-  return { status, error, saved, generate, reset };
+  return {
+    status,
+    error,
+    saved,
+    generate,
+    reset,
+    /** 저장만 실패해 결과가 남아 있다 — 화면이 '저장 다시 시도'를 띄운다. */
+    canRetrySave: unsaved !== null,
+    retrySave,
+  };
 }

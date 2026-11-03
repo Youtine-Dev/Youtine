@@ -29,14 +29,24 @@ const LONG_WAIT_SECONDS = 20;
  * 화면 전체를 덮어 터치를 막고, 스크롤도 잠근다.
  * (이 라우트는 전용 페이지라 이동하면 언마운트되므로 스크롤 락이 남지 않는다.)
  */
-function AIWorkingOverlay({
-  elapsed,
-  focus,
-}: {
-  elapsed: number;
-  focus: boolean;
-}) {
+function AIWorkingOverlay({ focus }: { focus: boolean }) {
   useBodyScrollLock();
+
+  /*
+   * 진행 표시 — 스피너만 돌면 멈춘 줄 안다(ProductForm 과 같은 이유).
+   * 오버레이 안에서 세야 마운트마다 0부터 시작한다 — 폼에 두면 두 번째 생성의 첫 1초에
+   * 직전 경과 초(예: 92초)와 '거의 다 됐어요' 힌트가 비쳤다(r4 m13).
+   */
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const id = setInterval(
+      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => clearInterval(id);
+  }, []);
+
   return (
     /*
      * ⚠️ 라이브 리전을 루트에 두지 않는다(재검토 N6) — 안에 매초 바뀌는 초 카운터가
@@ -104,20 +114,11 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
   const products = useProducts();
   const shelfCount = products.ready ? products.value.length : null;
 
-  const { status, error, saved, generate, reset } = useRoutineGenerate();
+  const { status, error, saved, generate, reset, canRetrySave, retrySave } =
+    useRoutineGenerate();
   const working = status === "working";
-
-  // 진행 표시 — 스피너만 돌면 멈춘 줄 안다(ProductForm 과 같은 이유·같은 방식).
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!working) return;
-    const startedAt = Date.now();
-    const id = setInterval(
-      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
-      1000,
-    );
-    return () => clearInterval(id);
-  }, [working]);
+  // '저장 다시 시도' 중에도 입력을 잠근다 — 오버레이는 AI 생성 중에만 띄운다(저장은 짧다).
+  const busy = working || status === "saving";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -248,7 +249,7 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
             placeholder="예: 볼은 건조한데 T존은 번들거려요. 트러블 자국도 신경 쓰여요."
             rows={4}
             required
-            disabled={working}
+            disabled={busy}
           />
         </div>
 
@@ -262,7 +263,7 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
               className={styles.select}
               value={morning}
               onChange={(e) => setMorning(e.target.value)}
-              disabled={working}
+              disabled={busy}
             >
               {TIME_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -281,7 +282,7 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
               className={styles.select}
               value={evening}
               onChange={(e) => setEvening(e.target.value)}
-              disabled={working}
+              disabled={busy}
             >
               {TIME_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -304,19 +305,32 @@ export function RoutineForm({ focus = false }: { focus?: boolean }) {
         )}
 
         {/* 진행 표시는 전면 오버레이(AIWorkingOverlay)가 맡는다 — 버튼은 잠그기만 한다. */}
-        <button className={styles.submit} type="submit" disabled={working}>
+        <button className={styles.submit} type="submit" disabled={busy}>
           <Icon name="auto_awesome" filled />
           루틴 만들기
         </button>
       </form>
 
-      {working && <AIWorkingOverlay elapsed={elapsed} focus={focus} />}
+      {working && <AIWorkingOverlay focus={focus} />}
 
       {status === "error" && error && (
         <p className={styles.error} role="alert">
           <Icon name="error" size="sm" />
           {error}
         </p>
+      )}
+
+      {/* 생성은 됐고 저장만 실패했다 — AI 재호출(90초) 없이 같은 결과를 다시 보낸다(r4 m27). */}
+      {canRetrySave && (
+        <button
+          type="button"
+          className={styles.submit}
+          onClick={retrySave}
+          disabled={status === "saving"}
+        >
+          <Icon name="refresh" />
+          {status === "saving" ? "저장 중…" : "만든 루틴 다시 저장하기"}
+        </button>
       )}
     </section>
   );

@@ -6,6 +6,7 @@
  *
  *   달성률 = 이번 주 완료 단계 수 ÷ 이번 주 예정 단계 수(경과 일수 기준) × 100
  *   주간 변화 = 이번 주 − 지난주 (%p, 지난주는 7일 전체가 분모)
+ *   예정은 루틴이 **생긴 날부터** 센다(4라운드 Q3) — 두 주 모두 생성 전 요일은 분모에서 뺀다.
  *
  * 예정은 **기본 세트만** 매일 1회로 본다(3라운드 M8·사용자 결정 Q1). 기타 세트는
  * 상황별(생리 주기·환절기·여행) 선택 루틴이라 매일 예정으로 치면 기본 루틴을 매일
@@ -21,7 +22,7 @@ import type { Routine, RoutineRun } from "@/types/skincare";
 export type Achievement = {
   /** 이번 주 완료 단계 수 */
   done: number;
-  /** 이번 주 예정 단계 수 — 경과 일수(월~오늘) × 하루 예정 단계 수 */
+  /** 이번 주 예정 단계 수 — 루틴별 (월요일·생성일 중 늦은 날 ~ 오늘) 일수 × 단계 수의 합 */
   planned: number;
   /** 0~100. 예정이 0이면 계산 불가라 null */
   percent: number | null;
@@ -40,6 +41,16 @@ function startOfWeek(now: Date): number {
   // getDay(): 0=일요일 → 월요일 기준으로 옮기면 일요일은 6일 전이다.
   const offset = (date.getDay() + 6) % 7;
   return date.getTime() - offset * DAY_MS;
+}
+
+/** 그 시각이 속한 로컬 날짜의 00:00. 주 경계·"오늘 완료"와 같은 기기 로컬 기준이다. */
+function localDay(at: number): number {
+  const date = new Date(at);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  ).getTime();
 }
 
 /**
@@ -79,33 +90,59 @@ export function weeklyAchievement(
 ): Achievement {
   const thisWeek = startOfWeek(now);
   const lastWeek = thisWeek - WEEK_MS;
+  const startOfToday = localDay(now.getTime());
+  const tomorrow = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + 1,
+  ).getTime();
   /*
-   * 하루 예정 단계 수 — **기본 세트**를 매일 1회씩 한다고 본다(Q1).
+   * 예정 루틴 — **기본 세트**를 매일 1회씩 한다고 본다(Q1).
    * 기본 세트가 없으면(기타만 있음) 있는 세트로 센다 — 분모 0 이면 화면이
    * "아직 만든 루틴이 없어요"라고 거짓 안내한다.
    */
   const basic = routines.filter(
     (routine) => !isFocusRoutine(routine.condition),
   );
-  const perDay = (basic.length > 0 ? basic : routines).reduce(
-    (sum, routine) => sum + routine.steps.length,
-    0,
-  );
+  const scheduled = basic.length > 0 ? basic : routines;
+
   /*
-   * 이번 주 분모는 **경과 일수**(월요일~오늘 포함)로 센다 — 아직 오지 않은
-   * 요일을 미완료로 치면 주 초마다 달성률이 거짓으로 낮아지고, 완결된
-   * 지난주와 비교하면 "86%p 하락" 같은 허위 델타가 나온다(리뷰 m7).
+   * 예정은 루틴이 **생긴 날(그날 포함)부터** 센다(4라운드 Q3). 주중에 만든 루틴의
+   * 생성 전 요일까지 예정으로 치면 첫날 전부 해도 25–50%, 다음 주엔 "지난주보다
+   * 86%p 올랐어요"가 나왔다(리뷰 r4 m1).
+   *  - 생성일은 첫 수행일보다 늦을 수 없다 — 편집(PUT)이 created_at 을 리셋하던
+   *    시절에 저장된 루틴은 생성일이 실제보다 늦다.
+   *  - 생성 시각이 없으면(시드) 처음부터 있던 것으로 본다.
+   *  - 기기 시계가 늦어 생성일이 내일로 보여도 오늘은 센다 — 분모 0 이면 "루틴 없음"이 된다.
+   */
+  const firstRun = new Map<string, number>();
+  for (const run of runs) {
+    const at = new Date(run.finishedAt).getTime();
+    if (Number.isNaN(at)) continue;
+    firstRun.set(
+      run.routineId,
+      Math.min(firstRun.get(run.routineId) ?? at, at),
+    );
+  }
+  const since = (routine: Routine): number => {
+    const created = Date.parse(routine.createdAt ?? "");
+    if (Number.isNaN(created)) return -Infinity;
+    const first = firstRun.get(routine.id) ?? created;
+    return Math.min(localDay(Math.min(created, first)), startOfToday);
+  };
+  /*
+   * [from, to) 동안의 예정 단계 수. 이번 주는 **경과 일수**(월요일~오늘 포함)만 센다 —
+   * 아직 오지 않은 요일을 미완료로 치면 주 초마다 달성률이 거짓으로 낮아진다(리뷰 m7).
    * DST 가 있는 시간대에서 하루가 23/25시간일 수 있어 round 로 나눈다.
    */
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime();
-  const elapsedDays = Math.round((startOfToday - thisWeek) / DAY_MS) + 1;
-  const planned = perDay * elapsedDays;
-  // 지난주는 완결된 주 — 7일 전체가 분모다.
-  const lastPlanned = perDay * 7;
+  const plannedIn = (from: number, to: number) =>
+    scheduled.reduce((sum, routine) => {
+      const days = Math.round((to - Math.max(from, since(routine))) / DAY_MS);
+      return sum + routine.steps.length * Math.max(0, days);
+    }, 0);
+  const planned = plannedIn(thisWeek, tomorrow);
+  // 지난주는 완결된 주 — 생성 이후 7일 전체가 분모다. 지난주에 루틴이 없었으면 0 → 델타 null.
+  const lastPlanned = plannedIn(lastWeek, thisWeek);
 
   /*
    * 분모(예정)가 현재 루틴 기준이므로 분자(완료)도 현재 루틴의 수행만 센다 —

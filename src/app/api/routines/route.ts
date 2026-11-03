@@ -261,24 +261,27 @@ export async function PUT(request: Request) {
        * 단계 편집이 id 를 재발급하면 편집 안 한 짝 루틴까지 오늘 완료·이번 주 달성률·
        * 기록 이름이 끊겼다. 요청 id 는 **이 사용자의 같은 condition 루틴**일 때만 믿는다 —
        * 아니면(생성 직후의 임시 id·남의 id) 새로 만든다.
+       * 유지하는 루틴은 created_at 도 그대로 둔다 — 달성률 분모가 생성일부터라(4라운드 Q3)
+       * 편집할 때마다 리셋되면 그 주 예정이 줄어 달성률이 부풀었다.
        */
-      const owned = new Map<string, Set<string>>();
+      const owned = new Map<string, Map<string, Date | null>>();
       for (const condition of conditions) {
         const [found] = await conn.execute(
-          `SELECT id FROM routines WHERE user_id = ? AND \`condition\` = ?`,
+          `SELECT id, created_at FROM routines WHERE user_id = ? AND \`condition\` = ?`,
           [userId, condition],
         );
         const rows: unknown[] = Array.isArray(found) ? found : [];
-        owned.set(
-          condition,
-          new Set(
-            rows.map((row) =>
-              typeof row === "object" && row !== null && "id" in row
-                ? String(row.id)
-                : "",
-            ),
-          ),
-        );
+        const kept = new Map<string, Date | null>();
+        for (const row of rows) {
+          if (typeof row !== "object" || row === null || !("id" in row))
+            continue;
+          const createdAt = "created_at" in row ? row.created_at : null;
+          kept.set(
+            String(row.id),
+            createdAt instanceof Date ? createdAt : null,
+          );
+        }
+        owned.set(condition, kept);
 
         await conn.execute(
           `DELETE FROM routines WHERE user_id = ? AND \`condition\` = ?`,
@@ -290,16 +293,18 @@ export async function PUT(request: Request) {
         /*
          * 새 id 는 **여기서** 만든다. DB 의 UUID() 에 맡기면 방금 넣은 행을 다시 찾아야 하는데,
          * 같은 이름·시간대 루틴이 여러 벌이면 엉뚱한 행을 집을 수 있다.
-         * `Set.delete` 는 한 번만 true 다 — 같은 id 를 두 번 보내도 PK 가 겹치지 않는다.
+         * `Map.delete` 는 한 번만 true 다 — 같은 id 를 두 번 보내도 PK 가 겹치지 않는다.
          */
+        const kept = owned.get(routine.condition);
+        const createdAt = routine.id ? (kept?.get(routine.id) ?? null) : null;
         const routineId =
-          routine.id && owned.get(routine.condition)?.delete(routine.id)
+          routine.id && kept?.delete(routine.id)
             ? routine.id
             : crypto.randomUUID();
 
         await conn.execute(
-          `INSERT INTO routines (id, user_id, name, \`condition\`, time_slot, summary)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO routines (id, user_id, name, \`condition\`, time_slot, summary, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
           [
             routineId,
             userId,
@@ -307,6 +312,7 @@ export async function PUT(request: Request) {
             routine.condition,
             routine.time,
             routine.summary,
+            createdAt,
           ],
         );
 

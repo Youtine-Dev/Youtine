@@ -8,10 +8,19 @@ import type { Routine, RoutineRun } from "@/types/skincare";
  * 각 테스트 이름 뒤의 괄호가 그 사고 번호다.
  */
 
-/** 단계 n개짜리 루틴 하나. 분모(예정 단계 수) 계산의 입력이다. 기본은 기본 세트다. */
-function routine(id: string, stepCount: number, condition = ""): Routine {
+/**
+ * 단계 n개짜리 루틴 하나. 분모(예정 단계 수) 계산의 입력이다. 기본은 기본 세트다.
+ * `createdAt` 을 안 주면 시드처럼 처음부터 있던 루틴이다.
+ */
+function routine(
+  id: string,
+  stepCount: number,
+  condition = "",
+  createdAt?: Date,
+): Routine {
   return {
     id,
+    createdAt: createdAt?.toISOString(),
     name: `${id} 루틴`,
     condition,
     time: "am",
@@ -190,5 +199,56 @@ describe("weeklyAchievement", () => {
     };
     const result = weeklyAchievement([broken], [routine("r1", 4)], WEDNESDAY);
     expect(result.done).toBe(0);
+  });
+
+  it("주중에 만든 루틴은 생성일부터 센다 — 목요일 생성·당일 전부 수행 → 100% (r4 m1)", () => {
+    // 2026-08-20 목요일 아침에 만들고 저녁에 다 했다. 월~수까지 예정으로 치면 25% 였다.
+    const thursday = new Date(2026, 7, 20, 22, 0, 0);
+    const result = weeklyAchievement(
+      [run("r1", new Date(2026, 7, 20, 21, 0, 0), 4)],
+      [routine("r1", 4, "", new Date(2026, 7, 20, 9, 0, 0))],
+      thursday,
+    );
+    expect(result.planned).toBe(4);
+    expect(result.percent).toBe(100);
+    expect(result.delta).toBeNull(); // 지난주엔 루틴이 없었다
+  });
+
+  it("생성 주의 다음 주 delta 는 지난주 생성 이후 일수로 센다 (r4 m1: 허위 +86%p)", () => {
+    // 지난주 목요일(8/13) 생성 → 목~일 4일 전부 수행 = 16/16. 7일 분모면 16/28 = 57% 였다.
+    const lastWeekDays = [13, 14, 15, 16].map(
+      (date) => new Date(2026, 7, date, 21, 0, 0),
+    );
+    const result = weeklyAchievement(
+      [
+        ...lastWeekDays.map((day) => run("r1", day, 4)),
+        ...[MONDAY, TUESDAY, WEDNESDAY].map((day) => run("r1", day, 4)),
+      ],
+      [routine("r1", 4, "", new Date(2026, 7, 13, 9, 0, 0))],
+      WEDNESDAY,
+    );
+    expect(result.percent).toBe(100);
+    expect(result.delta).toBe(0);
+  });
+
+  it("생성일이 첫 수행보다 늦으면 첫 수행일부터 센다 (편집이 created_at 을 리셋하던 옛 데이터)", () => {
+    // 월요일에 수행한 루틴의 created_at 이 수요일(편집 시각)로 남아 있다 → 월~수 3일이 분모.
+    const result = weeklyAchievement(
+      [run("r1", MONDAY, 4)],
+      [routine("r1", 4, "", new Date(2026, 7, 19, 9, 0, 0))],
+      WEDNESDAY,
+    );
+    expect(result.planned).toBe(12);
+    expect(result.percent).toBe(33);
+  });
+
+  it("생성일이 기기 기준 내일로 보여도 오늘은 예정으로 센다 (분모 0 → '루틴 없음' 방지)", () => {
+    const result = weeklyAchievement(
+      [],
+      [routine("r1", 4, "", new Date(2026, 7, 20, 0, 5, 0))],
+      WEDNESDAY,
+    );
+    expect(result.planned).toBe(4);
+    expect(result.percent).toBe(0);
   });
 });

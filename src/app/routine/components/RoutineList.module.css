@@ -6,6 +6,8 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
+  /* #routines 앵커로 올 때 고정 헤더에 목록 머리가 가리지 않게(r4 m34) */
+  scroll-margin-top: var(--page-pt);
 }
 
 .heading {
