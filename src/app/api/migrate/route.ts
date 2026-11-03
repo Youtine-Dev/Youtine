@@ -149,17 +149,11 @@ export async function POST(request: Request) {
           );
         }
 
-        // 주의사항은 이미 만들어 둔 것이 있으면 덮지 않는다(빈 값으로 지우는 사고 방지).
-        const warnings = textArray(item.warnings ?? [], {
-          maxItems: 20,
-          maxLength: 500,
-        });
-        if (warnings && warnings.length > 0) {
-          await conn.execute(
-            `UPDATE products SET warnings = ? WHERE id = ? AND warnings IS NULL`,
-            [JSON.stringify(warnings), productId],
-          );
-        }
+        /*
+         * 로컬 사본의 주의사항(item.warnings)은 공유 카탈로그에 쓰지 않는다(4라운드 m42).
+         * 클라이언트가 보낸 문장을 그대로 믿으면, 쿠키만 있으면 아직 NULL 인 카탈로그 제품에 임의 문장을
+         * 선점해 모든 사용자에게 보이게 할 수 있었다. NULL 로 두면 선반 조회 때 서버 큐가 만든다.
+         */
 
         await conn.execute(
           `INSERT IGNORE INTO shelf_items (id, user_id, product_id, thumbnail)
