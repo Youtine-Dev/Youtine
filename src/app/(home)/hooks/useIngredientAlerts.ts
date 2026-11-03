@@ -1,7 +1,7 @@
 "use client";
 
 import { useProducts } from "@/lib/data";
-import { realWarnings } from "@/lib/warnings";
+import { NO_INGREDIENTS_WARNING, realWarnings } from "@/lib/warnings";
 import type { Product } from "@/types/skincare";
 
 /**
@@ -18,7 +18,7 @@ export type IngredientAlertsState =
   | { kind: "checking" }
   | { kind: "error"; retry: () => void; errorMessage: string | null }
   | { kind: "no-products" }
-  | { kind: "no-warnings"; pendingCount: number }
+  | { kind: "no-warnings"; pendingCount: number; noIngredientCount: number }
   | { kind: "ready"; alerts: IngredientAlertItem[]; pendingCount: number };
 
 /**
@@ -59,7 +59,15 @@ export function useIngredientAlerts(): IngredientAlertsState {
   ).length;
 
   const alerts = toAlerts(products);
-  if (alerts.length === 0) return { kind: "no-warnings", pendingCount };
+  if (alerts.length === 0) {
+    // 분석할 성분이 없는 제품은 "주의 없음"이 아니라 "모름"이다 — 안전으로 읽히면 안 된다(4라운드 m3).
+    const noIngredientCount = products.filter(
+      (product) =>
+        product.ingredients.length === 0 ||
+        (product.warnings?.includes(NO_INGREDIENTS_WARNING) ?? false),
+    ).length;
+    return { kind: "no-warnings", pendingCount, noIngredientCount };
+  }
 
   return { kind: "ready", alerts, pendingCount };
 }

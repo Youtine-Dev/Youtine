@@ -3,6 +3,12 @@
   overflow: hidden;
   line-height: 1;
   user-select: none;
+  /* overflow: hidden 이라 flex 안에서 min-width 가 0 이 돼 아이콘이 4~14px 조각으로
+     찌그러졌다(4라운드 m24). 아이콘은 줄지 않는다. */
+  flex-shrink: 0;
+  /* 폰트 도착 전엔 리거처 이름 글자 폭(예: center_focus_strong 261px)으로 커져 탭·헤더가
+     넘친다. 글리프는 1em 폭이라 정사각형으로 고정해도 로드 후 모양은 같다. */
+  width: 1em;
 }
 
 .md {

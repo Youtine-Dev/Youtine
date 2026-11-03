@@ -25,6 +25,10 @@
 }
 
 .action {
+  /* 터치 타깃 44px — 42px 로 미달이었다(4라운드 m40). <a> 도 글자가 가운데 오게 flex. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 10px 20px;
   border-radius: var(--radius-full);
   background: var(--foreground);

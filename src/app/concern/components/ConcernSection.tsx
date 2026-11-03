@@ -38,6 +38,11 @@ export function ConcernSection() {
   const wonder = profile.value?.wonder ?? null;
   // 편집 중에는 추천을 부르지 않는다 — 아직 확정되지 않은 문장으로 30초를 쓸 이유가 없다.
   const ingredients = useConcernIngredients(editing ? null : wonder);
+  /*
+   * 추천 생성(또는 다시 시도) 중에는 고치지 못하게 한다. 키를 바꿔도 진행 중 요청은 서버에서
+   * 끝까지 돌며 사용자당 1건 가드를 쥐어, 새 고민이 429 로 막히고 옛 결과는 버려졌다(4라운드 m37).
+   */
+  const generating = !ingredients.ready || ingredients.validating;
 
   async function handleSave() {
     const next = draft.trim();
@@ -162,11 +167,15 @@ export function ConcernSection() {
               setDraft(wonder);
               setEditing(true);
             }}
+            disabled={generating}
           >
             <Icon name="edit" size="sm" />
             수정
           </button>
         </div>
+        {generating && (
+          <p className={styles.hint}>성분을 다 찾은 뒤에 고칠 수 있어요.</p>
+        )}
       </section>
 
       <section className={styles.card}>
@@ -174,9 +183,13 @@ export function ConcernSection() {
           제목에 등록한 고민을 그대로 넣는다(사용자 요청 2026-08-20) —
           "이 고민"이라는 대명사보다 무엇에 대한 답인지가 바로 보인다.
           고민은 한 문단일 수 있어 CSS 로 두 줄에서 자른다(전문은 위 카드에 있다).
+          조사 "에"까지 자르는 블록 안에 둔다 — 밖에 두면 "에"가 다음 줄 맨 앞에 홀로 선다.
         */}
         <h2 className={styles.heading}>
-          <span className={styles.headingWonder}>&ldquo;{wonder}&rdquo;</span>에
+          <span className={styles.headingClamp}>
+            <span className={styles.headingWonder}>&ldquo;{wonder}&rdquo;</span>
+            에
+          </span>{" "}
           도움이 되는 성분
         </h2>
 

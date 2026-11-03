@@ -61,15 +61,24 @@ export function IngredientAlerts() {
 
       {state.kind === "no-warnings" && (
         <p className={styles.status}>
-          {/* 분석 중인데 체크(완료) 아이콘이면 "끝났다"로 읽힌다(3라운드 I14). */}
+          {/* 분석 중인데 체크(완료) 아이콘이면 "끝났다"로 읽힌다(3라운드 I14).
+              성분이 없어 분석을 못 한 제품도 체크면 "안전"으로 읽힌다(4라운드 m3). */}
           <Icon
-            name={state.pendingCount > 0 ? "hourglass_top" : "check_circle"}
+            name={
+              state.pendingCount > 0
+                ? "hourglass_top"
+                : state.noIngredientCount > 0
+                  ? "info"
+                  : "check_circle"
+            }
             filled
           />
           {state.pendingCount > 0 ? (
             <SentenceBreak
               text={`${state.pendingCount}개 제품을 분석하고 있어요. 끝나면 여기에 표시됩니다.`}
             />
+          ) : state.noIngredientCount > 0 ? (
+            `성분 정보가 없는 제품 ${state.noIngredientCount}개 — 성분표를 촬영하면 주의사항을 알려드려요.`
           ) : (
             "등록한 제품에 특별한 주의사항이 없어요."
           )}
