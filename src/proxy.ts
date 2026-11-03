@@ -56,23 +56,24 @@ export function proxy(request: NextRequest) {
     request.nextUrl.protocol === "https:" ||
     request.headers.get("x-forwarded-proto") === "https";
 
-  // 유효한 쿠키가 있으면 다시 굽지 않는다 — 만료가 계속 밀리는 것을 원하면 여기서 갱신하면 된다.
-  // 없거나 형식이 틀렸으면 새 ID 로 덮는다(안 덮으면 다음 요청이 또 틀린 값을 보낸다).
-  if (id !== existing) {
-    response.cookies.set({
-      name: ANON_COOKIE,
-      value: id,
-      // JS 로 못 읽는다 — XSS 가 나도 ID 를 훔쳐 갈 수 없다.
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isHttps,
-      path: "/",
-      maxAge: MAX_AGE_SECONDS,
-      // ponytail: HTTPS 서브도메인이 확정되면 쿠키 이름에 `__Host-` 접두사를 붙인다.
-      //           형제 서브도메인이 Domain 속성으로 세션을 고정하는 경로가 막힌다.
-      //           지금 붙이면 Secure 가 강제라 http 로컬·http 배포에서 동작하지 않는다.
-    });
-  }
+  /*
+   * **유효한 쿠키도 매 요청 다시 굽는다**(4라운드 m39) — 만료를 오늘부터 1년으로 민다.
+   * 안 구우면 첫 방문 1년 뒤 매일 쓰던 사용자도 새 ID 를 받아 선반·루틴·기록이 통째로 사라진다.
+   * 없거나 형식이 틀렸으면 새 ID 로 덮는다(안 덮으면 다음 요청이 또 틀린 값을 보낸다).
+   */
+  response.cookies.set({
+    name: ANON_COOKIE,
+    value: id,
+    // JS 로 못 읽는다 — XSS 가 나도 ID 를 훔쳐 갈 수 없다.
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isHttps,
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    // ponytail: HTTPS 서브도메인이 확정되면 쿠키 이름에 `__Host-` 접두사를 붙인다.
+    //           형제 서브도메인이 Domain 속성으로 세션을 고정하는 경로가 막힌다.
+    //           지금 붙이면 Secure 가 강제라 http 로컬·http 배포에서 동작하지 않는다.
+  });
 
   return response;
 }
