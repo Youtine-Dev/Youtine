@@ -150,9 +150,14 @@ export function WeekStrip() {
               >
                 {label}
               </span>
-              {/* 날짜를 모르는 첫 렌더는 빈 칸으로 자리만 잡는다 */}
+              {/* 날짜를 모르는 첫 렌더는 빈 칸으로 자리만 잡는다.
+                  체크 아이콘만으론 읽을 이름이 없어 상태를 라벨로 준다(r4 m31, 월간 캘린더와 같음). */}
               <span
                 className={`${styles.marker} ${day ? styles[day.state] : ""}`}
+                role={day ? "img" : undefined}
+                aria-label={
+                  day ? `${day.date}일 ${STATE_LABEL[day.state]}` : undefined
+                }
               >
                 {day?.state === "done" ? (
                   <Icon name="check" size="sm" />

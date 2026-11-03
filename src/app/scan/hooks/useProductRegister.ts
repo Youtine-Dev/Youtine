@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   extractIngredients,
@@ -101,8 +101,23 @@ export function useProductRegister() {
    * 모달은 다시 마운트되는데, 시각을 모달이 들고 있으면 경과 초가 0부터 다시 센다.
    */
   const [extractStartedAt, setExtractStartedAt] = useState(0);
-  // 저장 시 addProduct 가 캐시를 mutate 하므로 여기서는 개수만 읽는다.
+  // 저장 시 addProduct 가 캐시를 mutate 하므로 여기서는 읽기만 한다(개수·중복 판정).
   const products = useProducts();
+  /** 확인 중인 결과가 이미 내 선반에 있으면 그 항목(m15) — 담아도 개수가 늘지 않는다. */
+  const existing = found ? findOnShelf(products.value, found) : undefined;
+  /** 저장 직전에 선반에 있던 같은 제품. 완료 화면이 "담았어요" 대신 무엇이 바뀌었는지 말한다. */
+  const [savedOver, setSavedOver] = useState<Product | undefined>(undefined);
+
+  /*
+   * 화면(스캔 탭)을 떠나면 진행 중 AI 요청을 끊는다(m11). 안 끊으면 서버에서 계속 돌아
+   * 돌아와 다시 누를 때 사용자당 1건 가드에 429 로 막힌다. StrictMode 재마운트도 새 컨트롤러를 만든다.
+   */
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return () => controller.abort();
+  }, []);
 
   /** 성분 추출 — 후보를 골랐거나 사진이 있을 때 공통으로 탄다. */
   const extract = useCallback(
@@ -118,6 +133,7 @@ export function useProductRegister() {
       setPhase("extracting");
       setExtractStartedAt(Date.now());
       setError(null);
+      const signal = abortRef.current?.signal;
 
       try {
         /*
@@ -132,17 +148,27 @@ export function useProductRegister() {
           input.productFile ? resizeToThumbnail(input.productFile) : undefined,
         ]);
 
-        const raw = await extractIngredients({
-          productName: input.productName,
-          // capacity 는 서버 컬럼이 없어 저장하지 않는다. 프롬프트 입력으로만 쓴다.
-          capacity: input.capacity || input.volume || undefined,
-          productCompany: input.productCompany || undefined,
-          productImg: labelImage,
-        });
+        const raw = await extractIngredients(
+          {
+            productName: input.productName,
+            // capacity 는 서버 컬럼이 없어 저장하지 않는다. 프롬프트 입력으로만 쓴다.
+            capacity: input.capacity || input.volume || undefined,
+            productCompany: input.productCompany || undefined,
+            productImg: labelImage,
+          },
+          { signal },
+        );
 
         // raw 는 snake_case 다. 여기(화면 계층)에서 프론트 모델로 옮긴다.
         setFound({
-          productName: raw.product_name || input.productName,
+          /*
+           * 성분표 사진 경로는 사용자가 보낸 이름으로 고정한다(m21) — 이름을 특정한 제품의 성분표라,
+           * AI 가 읽은 표기로 바꾸면 (이름, 브랜드) UPSERT 키가 어긋나 같은 제품이 별도 행이 된다.
+           * '이미 선반에 있음'(existing) 판정도 이 이름을 쓴다.
+           */
+          productName: input.labelFile
+            ? input.productName
+            : raw.product_name || input.productName,
           category: raw.category,
           ingredients: raw.ingredients,
           thumbnail,
@@ -164,6 +190,8 @@ export function useProductRegister() {
         });
         setPhase("found");
       } catch (cause: unknown) {
+        // 화면을 떠나 끊은 요청 — 오류가 아니다(보여 줄 화면도 이미 없다).
+        if (signal?.aborted) return;
         /*
          * 후보 목록이 있으면 그 화면으로 되돌린다 — 37초 걸린 검색 결과를 버리지 않고
          * 다른 후보를 고를 수 있게 한다.
@@ -188,6 +216,7 @@ export function useProductRegister() {
       setError(null);
       setFound(null);
       setSaved(null);
+      setSavedOver(undefined);
       setCandidates([]);
       setProductFile(input.productFile);
 
@@ -204,11 +233,16 @@ export function useProductRegister() {
       }
 
       setPhase("searching");
+      const signal = abortRef.current?.signal;
       try {
-        const raw = await searchProductCandidates({ query: productName });
+        const raw = await searchProductCandidates(
+          { query: productName },
+          { signal },
+        );
         setCandidates(raw.candidates);
         setPhase("choosing");
       } catch (cause: unknown) {
+        if (signal?.aborted) return;
         /*
          * ⭐ 검색이 실패해도 **막다른 길로 두지 않는다.**
          * 예전에는 idle 로 되돌려 사용자가 할 수 있는 게 없었다(외부 장애면 몇 시간
@@ -271,6 +305,8 @@ export function useProductRegister() {
 
     setPhase("saving");
     setError(null);
+    // 저장 전 선반. 완료 문구는 서버가 정한 id 로 판정한다 — 이름 비교(findOnShelf)는 누르기 전 안내용 추정이다.
+    const shelfBefore = products.value;
 
     try {
       const product = await addProduct({
@@ -285,6 +321,7 @@ export function useProductRegister() {
       });
 
       setSaved(product);
+      setSavedOver(shelfBefore.find((item) => item.id === product.id));
       setFound(null);
       setCandidates([]);
       setPhase("done");
@@ -296,7 +333,7 @@ export function useProductRegister() {
       setPhase("found");
       setError(toMessage(cause, "선반에 담지 못했어요"));
     }
-  }, [found]);
+  }, [found, products.value]);
 
   /** 저장하지 않고 모달을 닫는다. 폼 입력은 그대로 두어 다시 검색할 수 있다. */
   const dismiss = useCallback(() => {
@@ -312,6 +349,7 @@ export function useProductRegister() {
     setCandidates([]);
     setFound(null);
     setSaved(null);
+    setSavedOver(undefined);
     setProductFile(null);
   }, []);
 
@@ -321,6 +359,8 @@ export function useProductRegister() {
     candidates,
     found,
     saved,
+    existing,
+    savedOver,
     extractStartedAt,
     shelfCount: products.value.length,
     search,
@@ -331,6 +371,23 @@ export function useProductRegister() {
     dismiss,
     reset,
   };
+}
+
+/**
+ * 선반에서 같은 제품을 찾는다 — 서버 UPSERT 키와 같은 (이름, 브랜드). 서버는 둘 다 trim 하고
+ * 브랜드 미상을 빈 문자열로 저장하며(`POST /api/products`), 키 비교는 대소문자를 가리지 않는다
+ * (utf8mb4_unicode_ci — 'COSRX' 와 'cosrx' 는 같은 행).
+ */
+export function findOnShelf(
+  shelf: readonly Product[],
+  target: { productName: string; productCompany?: string },
+): Product | undefined {
+  const key = (name: string, brand = "") =>
+    `${name.trim()}\n${brand.trim()}`.toLowerCase();
+  const wanted = key(target.productName, target.productCompany);
+  return shelf.find(
+    (item) => key(item.productName, item.productCompany) === wanted,
+  );
 }
 
 /**

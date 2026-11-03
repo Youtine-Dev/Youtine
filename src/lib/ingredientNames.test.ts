@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalIngredient,
+  containsIngredient,
   ingredientAliases,
   sameIngredient,
 } from "./ingredientNames";
@@ -88,6 +89,15 @@ describe("sameIngredient", () => {
     expect(sameIngredient("에틸헥실글리세린", "글리세린")).toBe(false);
   });
 
+  it("코코넛오일 협회 표기(코코스누시페라)를 잇는다(4라운드 m35)", () => {
+    expect(sameIngredient("코코스누시페라(코코넛)오일", "코코넛오일")).toBe(
+      true,
+    );
+    expect(canonicalIngredient("코코스누시페라(코코넛)오일")).toBe(
+      "코코넛오일",
+    );
+  });
+
   it("함량·기능성 괄호가 같다고 같은 성분이 아니다(3라운드 M6)", () => {
     expect(sameIngredient("레티놀(0.1%)", "살리실릭애씨드(0.1%)")).toBe(false);
     expect(
@@ -110,5 +120,21 @@ describe("canonicalIngredient", () => {
   it("표에 없으면 함량 표기만 뗀다", () => {
     expect(canonicalIngredient("아데노신(0.04%)")).toBe("아데노신");
     expect(canonicalIngredient("정제수")).toBe("정제수");
+  });
+});
+
+describe("containsIngredient — '이 성분이 든 제품'(앞부분 일치, 4라운드 M2)", () => {
+  it("표기 변형은 앞부분 일치로 잇는다", () => {
+    expect(containsIngredient(["정제수", "세라마이드엔피"], "세라마이드")).toBe(
+      true,
+    );
+    expect(containsIngredient(["판테놀(비타민B5)"], "판테놀")).toBe(true);
+    // 별칭으로도 잇는다(SQL 도 별칭마다 OR 검색한다)
+    expect(containsIngredient(["Panthenol"], "판테놀")).toBe(true);
+  });
+
+  it("뒤쪽에만 들어간 다른 성분은 잇지 않는다", () => {
+    expect(containsIngredient(["이미다졸리디닐우레아"], "우레아")).toBe(false);
+    expect(containsIngredient(["세테아릴알코올"], "알코올")).toBe(false);
   });
 });

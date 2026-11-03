@@ -8,6 +8,7 @@ import { Icon } from "@/components/Icon";
 import { appendRun, useRoutines, useRuns } from "@/lib/data";
 import {
   clearRunStart,
+  consumeRunStart,
   isSameLocalDay,
   liveRunStart,
   RUN_START_KEY,
@@ -29,6 +30,9 @@ const NO_START: RunStart | null = null;
  * 겹쳐 돌 수 있어 `sentRef` 로 중복 호출만 막는다 — 소비 자체는 여전히 표시가 담당한다.
  *
  * - `completedStepIds` 는 '건너뛰기'로 지나친 단계를 뺀다(I10 — 시작 표시에 기록돼 있다).
+ *   **모든 단계를 건너뛰었으면 기록하지 않는다**(4라운드 Q2) — 0단계 수행이 '오늘 완료'·주간
+ *   체크로 세지는데 홈 달성률은 "기록 없음"이라 한 화면에서 모순됐다. 시작 표시는 지우지 않고
+ *   '소비됨'으로 남긴다 — 새로고침해도 같은 상태를 그리고 수동 '기록 남기기'를 내지 않는다.
  * - 시작 표시가 없거나 만료됐으면(중간 단계로 바로 들어옴·며칠 전 표시) 자동 기록하지 않는다 —
  *   시작 시각을 지어내지 않는다. 대신 그 사실을 알리고 **기록 남기기**를 고르게 한다(m24③).
  * - 저장 실패(네트워크 오류) 시 완료 축하는 유지하되 **실패 배너 + 다시 시도**를 띄운다.
@@ -41,18 +45,30 @@ export function RoutineDone({ routineId }: { routineId: string }) {
   const runsRes = useRuns();
   /** 소비되지 않은 시작 표시가 있으면 아직 기록 전이다. */
   const { value: stored } = useStored<RunStart | null>(RUN_START_KEY, NO_START);
-  const start = stored?.routineId === routineId ? liveRunStart(stored) : null;
+  const mine = stored?.routineId === routineId ? stored : null;
+  const start = liveRunStart(mine);
+  /** 전부 건너뛰어 소비된 표시(Q2). 진행 중 판정이 아니라 TTL 을 보지 않는다. */
+  const consumed = mine?.consumed ? mine : null;
+  /** 이 루틴의 시작 표시가 남아 있지만 TTL 이 지났다 — 미기록 사유 문구가 달라진다(r4 m30). */
+  const expired = mine !== null && !start && !consumed;
   /** StrictMode 이중 실행이나 재렌더로 같은 시작 표시가 두 번 기록 요청되는 것을 막는다. */
   const sentRef = useRef(false);
   /** 재시도해도 같은 시각을 보낸다 — 서버 멱등 키가 `started_at` 이다(RoutineCard m1 과 같은 이유). */
   const finishedAtRef = useRef<string | null>(null);
   /** 기록 저장 실패 여부 — 성공 UI 는 유지한 채 배너로만 알린다. */
   const [saveFailed, setSaveFailed] = useState(false);
-  /** 소비한 시작 표시 — 지운 뒤에도 건너뛴 단계 표시가 '모두 마침'으로 바뀌지 않게 남긴다. */
-  const [recorded, setRecorded] = useState<RunStart | null>(null);
+  /**
+   * 이 화면에서 본 시작 표시 — 소비(기록 후 삭제·전부 건너뜀)된 뒤에도 건너뛴 단계 표시가
+   * '모두 마침'으로 바뀌지 않게 남긴다. effect 에서 담으면 cascading render 라 렌더 중에
+   * 갱신한다(React 의 "이전 렌더 정보 저장" 패턴 — useStored 값은 원문이 같으면 같은 객체다).
+   */
+  const [seenStart, setSeenStart] = useState<RunStart | null>(null);
+  if (start && start !== seenStart) setSeenStart(start);
 
   const routine = routines.find((item) => item.id === routineId);
-  const skipped = new Set((start ?? recorded)?.skippedStepIds ?? []);
+  const skipped = new Set(
+    (start ?? seenStart ?? consumed)?.skippedStepIds ?? [],
+  );
 
   /**
    * 기록 전송 — 최초(effect)·수동 재시도(배너)·시작 표시 없는 기록(m24③)이 같은 경로를 탄다.
@@ -61,25 +77,29 @@ export function RoutineDone({ routineId }: { routineId: string }) {
   const sendRun = useCallback(() => {
     if (!routine) return;
     if (sentRef.current) return;
+    const skippedIds = new Set(start?.skippedStepIds ?? []);
+    const completedStepIds = routine.steps
+      .filter((step) => !skippedIds.has(step.id))
+      .map((step) => step.id);
+    // 전부 건너뜀(Q2) — 기록 없이 시작 표시를 '소비됨'으로 바꾼다(지우면 새로고침 때 수동 기록이 뜬다).
+    if (completedStepIds.length === 0) {
+      if (start) consumeRunStart(start);
+      return;
+    }
     sentRef.current = true;
     finishedAtRef.current ??= new Date().toISOString();
     const finishedAt = finishedAtRef.current;
-    const skippedIds = new Set(start?.skippedStepIds ?? []);
 
     appendRun({
       routineId,
       // 시작 표시가 없으면 사용자가 '기록 남기기'를 고른 경우다 — 카드 '완료'와 같은 규칙.
       startedAt: start?.startedAt ?? finishedAt,
       finishedAt,
-      completedStepIds: routine.steps
-        .filter((step) => !skippedIds.has(step.id))
-        .map((step) => step.id),
+      completedStepIds,
     })
       .then(() => {
         setSaveFailed(false);
-        if (!start) return;
-        setRecorded(start);
-        clearRunStart();
+        if (start) clearRunStart();
       })
       .catch((err: unknown) => {
         sentRef.current = false;
@@ -129,7 +149,8 @@ export function RoutineDone({ routineId }: { routineId: string }) {
   const today = new Date();
   const unrecorded =
     !start &&
-    !recorded &&
+    !seenStart &&
+    !consumed &&
     !saveFailed &&
     runsRes.ready &&
     !runsRes.error &&
@@ -138,23 +159,44 @@ export function RoutineDone({ routineId }: { routineId: string }) {
         run.routineId === routineId && isSameLocalDay(run.finishedAt, today),
     );
 
+  /** 전부 건너뜀(Q2) — 기록이 없으니 완료처럼 보이지 않게 한다. */
+  const allSkipped = doneCount === 0;
+
   return (
     <main className={styles.main}>
-      <Icon name="check_circle" filled className={styles.icon} />
+      <Icon
+        name={allSkipped ? "skip_next" : "check_circle"}
+        filled
+        className={`${styles.icon} ${allSkipped ? styles.iconSkipped : ""}`}
+      />
 
-      <h1 className={styles.title}>{TIME_LABEL[routine.time]} 루틴 완료</h1>
+      <h1 className={styles.title}>
+        {TIME_LABEL[routine.time]}{" "}
+        {allSkipped ? "루틴을 건너뛰었어요" : "루틴 완료"}
+      </h1>
       <p className={styles.text}>
         {doneCount === total
           ? `${total}단계를 모두 마쳤어요`
           : `${total}단계 중 ${doneCount}단계를 마쳤어요`}
-        {minutes !== null && ` · 약 ${minutes}분`}
+        {minutes !== null && !allSkipped && ` · 약 ${minutes}분`}
       </p>
+
+      {allSkipped && (
+        <div className={`${styles.warn} ${styles.notice}`} role="status">
+          <Icon name="info" size="sm" />
+          <span className={styles.warnText}>
+            모든 단계를 건너뛰어 이번 수행은 기록하지 않았어요.
+          </span>
+        </div>
+      )}
 
       {unrecorded && (
         <div className={`${styles.warn} ${styles.notice}`} role="status">
           <Icon name="info" size="sm" />
           <span className={styles.warnText}>
-            첫 단계부터 시작하지 않아 이번 수행은 아직 기록되지 않았어요.
+            {expired
+              ? "시작한 지 오래돼 이번 수행은 아직 기록되지 않았어요."
+              : "첫 단계부터 시작하지 않아 이번 수행은 아직 기록되지 않았어요."}
           </span>
           <button
             type="button"

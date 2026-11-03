@@ -74,15 +74,17 @@ export function ProductCard({
       {category && (
         <span className={`${card.label} ${styles.chip}`}>{category}</span>
       )}
-      <h3 className={styles.name}>{name}</h3>
+      {/* 버튼 안이라 span 만 — 헤딩·문단은 버튼에 못 들어가고, 헤딩 탐색이 버튼 안으로 튄다(m22).
+          모양은 클래스(-webkit-box)가 정해 태그와 무관하다. 섹션 제목(h2)은 바깥에 있다. */}
+      <span className={styles.name}>{name}</span>
       {note && (
-        <p className={`${styles.note} ${flagged ? styles.noteAlert : ""}`}>
+        <span className={`${styles.note} ${flagged ? styles.noteAlert : ""}`}>
           {/* 주의 마크는 문구 바로 왼쪽(사용자 요청 2026-11-02 — 예전엔 카드 오른쪽 위 구석) */}
           {flagged && (
             <Icon name="warning" size="sm" filled className={styles.flag} />
           )}
           {note}
-        </p>
+        </span>
       )}
     </>
   );

@@ -118,8 +118,12 @@ export type ShelfReportResponse = {
  * `/api/ai/*` 중 **유일하게 웹 검색을 쓴다**(화해 검색 결과가 근거).
  * 실측 18~37초 — 화면에 진행 표시가 필요하다.
  */
-export function searchProductCandidates(input: { query: string }) {
-  return api.post<ProductSearchResponse>("/ai/search", input);
+export function searchProductCandidates(
+  input: { query: string },
+  // 화면을 떠나면 abort — 서버가 request.signal 로 자식을 끝내 사용자당 1건 슬롯을 비운다(4라운드 m11).
+  options?: { signal?: AbortSignal },
+) {
+  return api.post<ProductSearchResponse>("/ai/search", input, options);
 }
 
 /**
@@ -127,13 +131,16 @@ export function searchProductCandidates(input: { query: string }) {
  * @param productImg data URL. **원본을 보낸다** — 성분표 글씨 해상도가 곧 정확도다.
  *   (저장용 썸네일은 별도로 축소한다.)
  */
-export function extractIngredients(input: {
-  productName: string;
-  capacity?: string;
-  productCompany?: string;
-  productImg?: string;
-}) {
-  return api.post<IngredientsResponse>("/ai/ingredients", input);
+export function extractIngredients(
+  input: {
+    productName: string;
+    capacity?: string;
+    productCompany?: string;
+    productImg?: string;
+  },
+  options?: { signal?: AbortSignal },
+) {
+  return api.post<IngredientsResponse>("/ai/ingredients", input, options);
 }
 
 /** 아침/저녁 루틴 생성. 수십 초가 걸리므로 화면에 진행 표시가 필요하다. */

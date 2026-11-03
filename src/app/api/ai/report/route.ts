@@ -333,6 +333,12 @@ export async function POST(request: Request) {
    */
   if (!generate) return Response.json(null);
 
+  /*
+   * 보유 성분이 하나도 없으면(이름만 등록한 제품뿐) AI 를 태우지 않는다(4라운드 m20) — 1~2분 돌려도
+   * 결과는 늘 빈 리포트였다. 빈 선반과 같게 캐시하지 않는다(성분이 채워지면 지문이 바뀐다).
+   */
+  if (owned.size === 0) return Response.json(EMPTY_REPORT);
+
   // 사용자당 동시 1건 + 전역 상한. 호출마다 claude 프로세스가 뜬다.
   const busy = acquireOrBusy(userId);
   if (busy) return busy;

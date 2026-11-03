@@ -33,7 +33,7 @@ export const metadata: Metadata = {
  *    `position: fixed` 인 등록 모달·카메라가 패널 안에 갇힌다.
  */
 export default async function ScanPage({ searchParams }: PageProps<"/scan">) {
-  const { tab } = await searchParams;
+  const { tab, name, brand } = await searchParams;
   const active = toScanTab(tab);
 
   return (
@@ -49,7 +49,12 @@ export default async function ScanPage({ searchParams }: PageProps<"/scan">) {
       <main id="main" className={styles.main} tabIndex={-1}>
         <ScanTabs active={active} />
 
-        <ScanWorkspace active={active} />
+        {/* name·brand 는 `labelCaptureHref`(성분표 촬영하기, m21)가 만든다. 배열·누락은 빈 값. */}
+        <ScanWorkspace
+          active={active}
+          labelName={typeof name === "string" ? name.trim() : ""}
+          labelBrand={typeof brand === "string" ? brand.trim() : ""}
+        />
 
         <section hidden={active !== "shelf"}>
           <h2 className={styles.sectionTitle}>내 선반</h2>

@@ -299,7 +299,8 @@
   transform: scale(0.98);
 }
 
-/* 보기 모드에선 <a> 라 매칭되지 않는다. 편집 모드의 저장 버튼에만 걸린다. */
+/* 보기 모드에선 <a> 라 매칭되지 않는다. 편집 모드의 저장 버튼과
+   다른 카드 편집 중(editLocked)의 시작하기에만 걸린다. */
 .start:disabled {
   opacity: 0.6;
   cursor: progress;

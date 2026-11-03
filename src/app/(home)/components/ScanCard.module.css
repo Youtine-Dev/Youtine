@@ -8,15 +8,10 @@
   border-radius: var(--radius-xl);
   background: var(--primary-container);
   box-shadow: var(--shadow-card);
-  transition:
-    box-shadow 0.3s ease,
-    transform 0.3s ease;
 }
 
-.section:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-2px);
-}
+/* 카드 전체 hover 떠오름·배지 확대는 뺐다 — 눌리는 곳은 아래 CTA 뿐인데 카드 전체가
+   눌릴 것처럼 보였다(4라운드 m5). hover 반응은 .cta 에만 둔다. */
 
 /* 목업의 점 패턴 배경 — 이미지 대신 그라디언트로 그린다 */
 .section::before {
@@ -46,11 +41,6 @@
   border-radius: var(--radius-full);
   background: var(--on-primary-container);
   color: var(--primary-container);
-  transition: transform 0.3s ease;
-}
-
-.section:hover .badge {
-  transform: scale(1.1);
 }
 
 .heading {

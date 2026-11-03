@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { DataState } from "@/components/DataState/DataState";
@@ -21,6 +22,7 @@ import type { Product } from "@/types/skincare";
 import { toMessage } from "../hooks/useProductRegister";
 // 검색 결과 모달(`ProductSearchModal`)과 같은 껍데기를 쓴다 — 한 파일을 함께 import 한다.
 import styles from "./productModal.module.css";
+import { labelCaptureHref } from "./ScanTabs";
 
 /**
  * 인기 제품 상세 — **이미 저장된 값만 보여 준다.**
@@ -66,10 +68,11 @@ export function PopularProductModal({
 
   const image = product.thumbnail || product.image;
   // 선반 항목의 id 는 카탈로그 id 다(`GET /api/products` 가 p.id 를 준다).
+  // 담는 중엔 목록이 먼저 갱신돼도 담기 버튼을 유지한다 — 빼기 줄로 바뀌면 포커스가 빠진다(m23).
   const onShelf =
     alreadyOnShelf ||
     pending === "remove" ||
-    shelf.value.some((item) => item.id === product.id);
+    (pending !== "add" && shelf.value.some((item) => item.id === product.id));
   // "성분 정보 부족" 안내는 주의사항이 아니다 — 성분 없음은 위의 빈 성분 문구가 이미 말한다(m27).
   const warnings = realWarnings(product.warnings ?? []);
 
@@ -190,11 +193,24 @@ export function PopularProductModal({
 
           {/* 빈 배열은 "아직 성분을 못 찾은 제품"이다. 지어내지 않았다는 뜻이라 그대로 알린다. */}
           {product.ingredients.length === 0 ? (
-            <p className={styles.empty}>
-              아직 성분 정보가 없어요.
-              <br />
-              담은 뒤 성분표 사진을 올리면 채워집니다.
-            </p>
+            <>
+              <p className={styles.empty}>
+                아직 성분 정보가 없어요.
+                <br />
+                성분표를 촬영하면 AI 가 읽어 채워 드려요.
+              </p>
+              {/* 안내만 있으면 막다른 길이고, 이름·브랜드를 손으로 다시 치면 글자가 달라 별도 행이
+                  된다(m21) — 등록 폼을 이 제품으로 채워 카메라를 연다. 모달은 먼저 닫는다
+                  (선반 탭은 detail 을 들고 있어 돌아오면 다시 뜬다). 담기 전이어도 등록이 담는다. */}
+              <Link
+                href={labelCaptureHref(product)}
+                className={styles.emptyAction}
+                onClick={onClose}
+              >
+                <Icon name="photo_camera" filled size="sm" />
+                성분표 촬영하기
+              </Link>
+            </>
           ) : (
             <ul className={styles.ingredients}>
               {product.ingredients.map((ingredient) => (
@@ -239,7 +255,14 @@ export function PopularProductModal({
           )}
 
           {saved ? (
-            <button type="button" className={styles.submit} onClick={onClose}>
+            /* 누른 버튼이 이걸로 바뀌며 사라진다 — 포커스를 여기로 받아 대화상자 안에 둔다(m23).
+               React 의 autoFocus 는 마운트 때 focus() 를 부른다(이 버튼은 담기 성공 때만 마운트). */
+            <button
+              type="button"
+              className={styles.submit}
+              onClick={onClose}
+              autoFocus
+            >
               <Icon name="check_circle" filled />
               선반에 담았어요
             </button>
@@ -306,11 +329,12 @@ export function PopularProductModal({
               )}
             </div>
           ) : (
+            /* disabled 를 쓰지 않는다 — 누른 순간 비활성이 되면 포커스가 body 로 빠진다(m23). */
             <button
               type="button"
               className={styles.submit}
-              onClick={handleAdd}
-              disabled={pending !== null}
+              onClick={pending === null ? handleAdd : undefined}
+              aria-disabled={pending !== null}
             >
               {pending === "add" ? (
                 <>

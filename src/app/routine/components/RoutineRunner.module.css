@@ -101,6 +101,32 @@
   font-size: 14px;
 }
 
+/* 히어로 상단 오른쪽 '건너뛰기'(r4 m26). 제목 묶음이 탭을 끊으므로 이것만 다시 받는다.
+   사진 위·아래 어디서나 읽히도록 이전 버튼과 같은 반투명 면을 깐다. */
+.heroSkip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-left: auto;
+  padding: 0 16px;
+  border-radius: var(--radius-full);
+  background: color-mix(
+    in srgb,
+    var(--surface-container-lowest) 88%,
+    transparent
+  );
+  color: var(--on-surface-variant);
+  font: var(--text-body-md);
+  font-weight: 500;
+  white-space: nowrap;
+  backdrop-filter: blur(var(--glass-blur));
+  pointer-events: auto;
+}
+
+.heroSkip:hover {
+  color: var(--secondary);
+}
+
 /* 한국 화장품명은 40~60자가 흔하다 — 2줄에서 자른다(전체 이름은 DOM 에 그대로 있다). */
 .heroTitle {
   display: -webkit-box;

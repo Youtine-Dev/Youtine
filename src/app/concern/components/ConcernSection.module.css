@@ -15,11 +15,23 @@
   color: var(--on-surface);
 }
 
-/* 제목 안의 고민 원문. 색만 구분한다 — 길이 절단은 JS 가 한다(줄바꿈 위치가 예측 가능해야
-   조사 "에"가 인용부 바로 뒤에 붙는다). 전문은 "내 고민" 카드가 든다. */
+/* 제목 안의 고민 원문 + 조사 "에" — 두 줄에서 자른다(4라운드 m36: 주석만 있고 절단이 없어
+   긴 고민이 제목을 통째로 채웠다). 전문은 "내 고민" 카드가 든다.
+   inline-box: 블록이면 짧은 고민도 '도움이 되는 성분'이 늘 다음 줄로 밀린다.
+   overflow 가 있는 inline-block 은 baseline 이 아래 끝이라 top 으로 맞춘다. */
+.headingClamp {
+  display: -webkit-inline-box;
+  vertical-align: top;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 고민 원문. 색만 구분한다. */
 .headingWonder {
   color: var(--primary);
-  overflow-wrap: anywhere;
 }
 
 .lead {
@@ -120,10 +132,14 @@
   color: var(--on-primary-container);
 }
 
+/* 줄지 않는다 — 한글은 음절마다 줄바꿈 지점이라 flex 가 줄이면 360–390px 에서 '수/정'이
+   한 글자씩 두 줄로 쪼개졌다. 남는 폭은 옆 고민 문구(overflow-wrap: anywhere)가 줄어 맞춘다. */
 .ghost {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
   min-height: 44px;
   padding: 10px 14px;
   border: none;
@@ -137,6 +153,19 @@
 
 .ghost:hover:not(:disabled) {
   background: var(--surface-container);
+}
+
+/* --on-surface-variant 는 라이트에서 --primary 와 명도가 거의 같아 비활성이 티가 안 난다. */
+.ghost:disabled {
+  color: var(--outline);
+  cursor: not-allowed;
+}
+
+/* 추천 생성 중 '수정'이 막힌 이유(4라운드 m37). */
+.hint {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* ── 등록된 고민 ───────────────────────────────────────── */

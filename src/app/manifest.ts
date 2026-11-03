@@ -12,8 +12,10 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "나만의 스킨케어 루틴, 유틴(youtine)",
     start_url: "/",
     display: "standalone",
-    // 라이트 `--surface` — layout.tsx 의 SURFACE.light 와 같은 값(스플래시·상태바).
-    background_color: "#f8f9fa",
+    // 스플래시 = 라이트 페이지 바탕 `--background`(globals.css). `--surface` 로 두면 실행 직후
+    // 바탕색이 한 번 바뀐다(4라운드 m7).
+    background_color: "#edeeef",
+    // 상태바 = 라이트 `--surface` — layout.tsx 의 SURFACE.light 와 같은 값.
     theme_color: "#f8f9fa",
     // 파일 컨벤션 아이콘(src/app/icon.svg)이 `/icon.svg` 로 서빙된다. SVG 라 크기 무관.
     icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml" }],

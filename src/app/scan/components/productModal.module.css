@@ -522,12 +522,14 @@
   transition: background 0.2s ease;
 }
 
-.submit:hover:not(:disabled) {
+.submit:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--primary-container);
   color: var(--on-primary-container);
 }
 
-.submit:disabled {
+/* aria-disabled 는 포커스를 지키려고 disabled 대신 쓰는 진행 상태다(인기 모달 담기, m23). */
+.submit:disabled,
+.submit[aria-disabled="true"] {
   background: var(--surface-container-high);
   color: var(--on-surface-variant);
   cursor: progress;

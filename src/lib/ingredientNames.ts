@@ -79,7 +79,8 @@ const SYNONYMS: readonly (readonly string[])[] = [
   ["글루코노락톤", "Gluconolactone"],
   ["변성알코올", "Alcohol Denat."],
   ["소듐라우릴설페이트", "Sodium Lauryl Sulfate"],
-  ["코코넛오일", "코코스너시페라(코코넛)오일", "Cocos Nucifera (Coconut) Oil"],
+  // 협회 표기는 '코코스**누**시페라'(시드 002 와 같다). '너' 오타로 타입별 주의가 표기별로 갈렸다(4라운드 m35).
+  ["코코넛오일", "코코스누시페라(코코넛)오일", "Cocos Nucifera (Coconut) Oil"],
   ["아이소프로필미리스테이트", "Isopropyl Myristate"],
   ["코코아버터", "Theobroma Cacao (Cocoa) Seed Butter"],
   ["페트롤라툼", "Petrolatum"],
@@ -152,6 +153,23 @@ export function ingredientAliases(name: string): string[] {
 export function sameIngredient(a: string, b: string): boolean {
   const keysA = new Set(ingredientAliases(a).map(nameKey));
   return ingredientAliases(b).some((alias) => keysA.has(nameKey(alias)));
+}
+
+/**
+ * "이 성분이 든 제품" 판정 — 제품 성분 항목이 별칭 중 하나로 **시작**하면 든 것으로 본다(4라운드 M2).
+ * 표기 변형('세라마이드엔피', '판테놀(비타민B5)')은 잇고 뒤쪽 일치('이미다졸리디닐우레아')는 막는다.
+ * ⚠️ `/api/products/by-ingredient` 가 SQL(`JSON_SEARCH(…, CONCAT(?, '%'))`) 선필터 뒤 이것으로 응답을 거른다.
+ *    대소문자를 구분하는 것도 SQL 과 같다(JSON 컬럼 = utf8mb4_bin) — 규칙을 바꾸면 SQL 도 함께 고친다.
+ *    안전 정보(지식·충돌)는 이것이 아니라 정확 일치인 `sameIngredient` 로 잇는다.
+ */
+export function containsIngredient(
+  ingredients: readonly string[],
+  name: string,
+): boolean {
+  const aliases = ingredientAliases(name);
+  return ingredients.some((item) =>
+    aliases.some((alias) => item.startsWith(alias)),
+  );
 }
 
 /**

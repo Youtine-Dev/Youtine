@@ -57,7 +57,7 @@ export const createProduct = (input: {
 }) => api.post<Product>("/products", input);
 
 // updateProductWarnings 는 삭제했다 — 주의사항 생성이 서버 큐로 옮겨가 호출처 0건(리뷰 R4).
-// 서버 PATCH 라우트는 남아 있지만 클라이언트 경로를 되살리지 않는다.
+// 서버 PATCH 라우트도 삭제했다(4라운드 M1 — 공유 주의사항을 누구나 덮었다). 되살리지 않는다.
 
 /** 내 선반에서만 뺀다. 공유 카탈로그의 제품 자체는 남는다. */
 export const removeProduct = (input: { id: string }) =>

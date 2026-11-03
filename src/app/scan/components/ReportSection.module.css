@@ -2,11 +2,18 @@
   border: 1px solid color-mix(in srgb, var(--surface-variant) 50%, transparent);
 }
 
+/* 360px 에선 분석하기 버튼이 제목 칸을 눌러 '리/포트'처럼 음절 중간에서 끊었다(m25) —
+   자리가 모자라면 버튼이 다음 줄(오른쪽 끝)로 내려가고, 그래도 좁으면 단어 단위로만 끊는다. */
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-bottom: 24px;
+}
+
+.headerText {
+  word-break: keep-all;
 }
 
 .badge {
@@ -233,6 +240,25 @@
 
 .alertCta:hover {
   background: var(--error-container);
+}
+
+/* 성분 없는 제품 안내 아래 — 주의(빨강) 동작이 아니라 다음 할 일이라 보조 색을 쓴다(m3). */
+.photoCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* 터치 타깃 44px */
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.photoCta:hover {
+  background: var(--secondary);
+  color: var(--on-secondary);
 }
 
 /* ── 분석 탭(타입별·시너지) ────────────────────────────── */

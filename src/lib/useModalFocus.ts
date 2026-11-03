@@ -31,6 +31,12 @@ export function useModalFocus(
 ): void {
   useEffect(() => {
     const trigger = document.activeElement;
+    // 트리거가 닫힐 때 사라질 수 있다('선반에서 빼기' — 4라운드 m4). 그때 돌아갈 자리로
+    // 트리거가 속한 섹션의 제목을 지금(트리거가 있을 때) 기억해 둔다. 트리거가 바깥 모달 안이면
+    // 그 모달 안에서 찾는다 — 섹션을 찾아 모달 밖으로 나가면 바깥 모달의 가둠을 깬다.
+    const fallback = trigger
+      ?.closest('section, [role="dialog"]')
+      ?.querySelector<HTMLElement>("h1, h2, h3");
     const container = containerRef.current;
     const first = container?.querySelector<HTMLElement>(FOCUSABLE);
     (initialFocusRef?.current ?? first)?.focus();
@@ -61,9 +67,19 @@ export function useModalFocus(
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      // 트리거가 아직 화면에 있을 때만 — 탭 전환으로 사라졌으면 body 로 두는 게 맞다.
-      if (trigger instanceof HTMLElement && trigger.isConnected)
+      if (trigger instanceof HTMLElement && trigger.isConnected) {
         trigger.focus();
+        return;
+      }
+      // 섹션째 사라졌으면(탭 전환) body 로 둔다. 포커스가 이미 다른 곳(중첩 모달의 바깥 트리거
+      // 등)에 갔으면 빼앗지 않는다.
+      const lost =
+        document.activeElement === null ||
+        document.activeElement === document.body;
+      if (!fallback?.isConnected || !lost) return;
+      // 제목은 원래 포커스를 못 받는다 — Tab 순서엔 넣지 않고(-1) 여기서만 받게 한다.
+      if (!fallback.hasAttribute("tabindex")) fallback.tabIndex = -1;
+      fallback.focus();
     };
     // ref 객체는 렌더마다 같다 — 마운트 1회만 돈다.
   }, [containerRef, initialFocusRef]);

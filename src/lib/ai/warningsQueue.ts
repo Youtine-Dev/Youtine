@@ -72,12 +72,13 @@ async function generate(job: Job): Promise<void> {
     throw new Error(`warning 배열 없음: ${raw.slice(0, 300)}`);
   }
 
-  // PATCH 와 같은 상한(개수 20·길이 500). 넘치면 저장하지 않는다.
+  // 상한(개수 20·길이 500). 넘치면 저장하지 않는다.
   const warnings = textArray(parsed.warning, { maxItems: 20, maxLength: 500 });
   if (warnings === null) throw new Error("상한 초과 — 저장 생략");
 
   /*
-   * **첫 기록(NULL)일 때만** 쓴다 — 데이터 손실 가드(PATCH 와 같은 규칙).
+   * **첫 기록(NULL)일 때만** 쓴다 — 데이터 손실 가드. 주의사항을 쓰는 경로는 이 큐뿐이다
+   * (예전 `PATCH /api/products` 는 남의 주의사항을 덮을 수 있어 삭제 — 리뷰 R4 M1).
    * 빈 배열도 저장한다: "확인했고 주의 없음"이라는 답이라 재생성이 반복되지 않는다.
    */
   await execute(

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
+import { useModalFocus } from "@/lib/useModalFocus";
 
 import styles from "./CameraCapture.module.css";
 
@@ -90,11 +92,18 @@ export function CameraCapture({
 }) {
   const { title, hint, roi, prefix } = MODES[mode];
 
+  const dialogRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [aspect, setAspect] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  // 영상 크기를 안 뒤에만 찍을 수 있다(capture 가 videoWidth 0 이면 조용히 돌아간다, m17).
+  const ready = aspect !== undefined;
+
+  // aria-modal 인데 포커스·스크롤이 배경에 남아 있었다(m12) — 다른 모달과 같은 공용 훅.
+  useBodyScrollLock();
+  useModalFocus(dialogRef);
 
   // 스트림은 마운트 시 한 번 연다. cleanup 에서 트랙을 꺼야
   // 오버레이를 닫아도 카메라 표시등이 켜져 있지 않다.
@@ -185,6 +194,7 @@ export function CameraCapture({
 
   return (
     <div
+      ref={dialogRef}
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
@@ -237,10 +247,10 @@ export function CameraCapture({
         type="button"
         className={styles.shutter}
         onClick={capture}
-        disabled={busy || Boolean(error)}
+        disabled={!ready || busy || Boolean(error)}
       >
         <Icon name="photo_camera" filled />
-        {busy ? "저장 중…" : "촬영하기"}
+        {busy ? "저장 중…" : ready || error ? "촬영하기" : "카메라 준비 중…"}
       </button>
     </div>
   );

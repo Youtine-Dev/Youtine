@@ -19,7 +19,13 @@ import { acquireOrBusy, release } from "@/lib/ai/guard";
 import { currentUserId } from "@/lib/auth/anonUser";
 import { isStringArray, parseJsonObject } from "@/lib/claude/parseJson";
 import { runClaude } from "@/lib/claude/runner";
-import { LIMITS, optionalText, readJsonObject, text } from "@/lib/db/input";
+import {
+  LIMITS,
+  optionalText,
+  readJsonObject,
+  text,
+  textArray,
+} from "@/lib/db/input";
 import { selectRows } from "@/lib/db/pool";
 import {
   findIngredientsFromBrandSite,
@@ -35,6 +41,12 @@ const TIMEOUT_MS = 300_000;
 
 /** 웹 경로에서 이 개수 이상이면 첫 성분이 물이 아니어도 전성분으로 본다(부분 목록 실측 2~9종). */
 const FULL_LIST_MIN = 15;
+
+/**
+ * 등록(`POST /api/products`)의 성분 상한과 같다 — 다르면 추출은 되고 저장에서 400 이 나는데
+ * 모달 안에서 고칠 수단이 없다(4라운드 m10).
+ */
+const INGREDIENT_LIMITS = { maxItems: 300, maxLength: 200 };
 
 /** 이미지 data URL 이 실려 다른 두 AI 엔드포인트보다 훨씬 크다. */
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -318,7 +330,14 @@ export async function POST(request: Request) {
        * "물로 시작하지 않는다"는 이유만으로 버려졌다(실측: 아누아 24종 → []). 실측 분포상 부분 목록은
        * 2~9종, 웹에서 찾은 전성분은 21~63종이라 15종에서 갈린다.
        */
-      let ingredients = parsed.ingredients;
+      // 저장과 같은 상한으로 좁힌다(공백 항목 제거·trim 포함). 넘치면 못 찾은 것과 같게 [] — 촬영 안내로 이어진다.
+      let ingredients = textArray(parsed.ingredients, INGREDIENT_LIMITS);
+      if (ingredients === null) {
+        console.warn(
+          `[api/ai/ingredients] 성분 ${parsed.ingredients.length}개 중 저장 상한(개수 ${INGREDIENT_LIMITS.maxItems}·길이 ${INGREDIENT_LIMITS.maxLength}) 초과 — 버림`,
+        );
+        ingredients = [];
+      }
       if (
         !image &&
         ingredients.length > 0 &&
@@ -331,13 +350,18 @@ export async function POST(request: Request) {
         ingredients = [];
       }
 
+      // 이름도 저장 상한으로 — 넘치거나 비면 사용자가 입력한(이미 상한을 통과한) 이름을 쓴다.
+      const extractedName = text(parsed.product_name, LIMITS.productName);
+      if (extractedName === null && typeof parsed.product_name === "string") {
+        console.warn(
+          `[api/ai/ingredients] product_name ${parsed.product_name.length}자 — 입력 이름으로 대체`,
+        );
+      }
+
       // ⚠️ 빈 배열은 실패가 아니라 정상 응답이다(프롬프트 규칙 2: 확신 없으면 []).
       //    여기서 에러로 바꾸면 "성분을 지어내지 않는다"는 설계를 정면으로 위배한다.
       return Response.json({
-        product_name:
-          typeof parsed.product_name === "string"
-            ? parsed.product_name
-            : productName,
+        product_name: extractedName ?? productName,
         // LLM 카테고리는 길이를 보장하지 않는다 — 상한을 넘기면 등록(POST /api/products)이 400 이 된다.
         category: text(parsed.category, LIMITS.category) ?? "미분류",
         ingredients,

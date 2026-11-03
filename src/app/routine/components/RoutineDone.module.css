@@ -18,6 +18,11 @@
   color: var(--primary);
 }
 
+/* 전부 건너뜀(Q2) — 완료가 아니므로 강조색을 쓰지 않는다. */
+.iconSkipped {
+  color: var(--on-surface-variant);
+}
+
 .title {
   font: var(--text-headline-lg);
   letter-spacing: var(--tracking-headline-lg);

@@ -16,14 +16,17 @@ function run(cookie?: string) {
     // NextResponse.next({ request: { headers } }) 가 Route Handler 로 넘기는 헤더
     forwarded: response.headers.get(`x-middleware-request-${ANON_HEADER}`),
     setCookie: response.cookies.get(ANON_COOKIE)?.value,
+    maxAge: response.cookies.get(ANON_COOKIE)?.maxAge,
   };
 }
 
 describe("proxy — 익명 ID 쿠키", () => {
-  it("유효한 쿠키는 그대로 쓰고 다시 굽지 않는다", () => {
-    const { forwarded, setCookie } = run(VALID);
+  // 4라운드 m39 — 안 구우면 첫 방문 1년 뒤 매일 쓰던 사용자의 데이터가 새 ID 로 사라진다.
+  it("유효한 쿠키는 그대로 쓰되 같은 값으로 다시 구워 만료를 민다", () => {
+    const { forwarded, setCookie, maxAge } = run(VALID);
     expect(forwarded).toBe(VALID);
-    expect(setCookie).toBeUndefined();
+    expect(setCookie).toBe(VALID);
+    expect(maxAge).toBe(60 * 60 * 24 * 365);
   });
 
   it("쿠키가 없으면 새로 발급해 헤더와 쿠키에 같은 값을 싣는다", () => {

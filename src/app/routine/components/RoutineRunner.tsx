@@ -192,12 +192,27 @@ export function RoutineRunner({
             <div className={styles.heroIntro}>
               <p className={styles.meta}>
                 <span className={styles.category}>{current.routineName}</span>
-                {/* 시간이 없는 단계에 "약 1분"을 날조하지 않는다(리뷰 m15). */}
+                {/* 시간이 없는 단계에 "약 1분"을 날조하지 않는다(리뷰 m15).
+                    1분 미만은 초로 — 30초 단계에 '약 1분'이면 아래 타이머 0:30 과 어긋난다(r4 m32). */}
                 {current.estimatedTime > 0 && (
                   <span className={styles.duration}>
-                    약 {Math.max(1, Math.round(current.estimatedTime / 60))}분
+                    {current.estimatedTime < 60
+                      ? `${current.estimatedTime}초`
+                      : `약 ${Math.round(current.estimatedTime / 60)}분`}
                   </span>
                 )}
+                {/*
+                  건너뛰기는 히어로에도 상시 둔다(r4 m26) — 하단 바는 히어로가 화면 밖일 때만 떠서
+                  흔한 화면(390px·1024×768)에선 아예 안 보였고, 안 한 단계를 '다음'으로 넘겨
+                  완료로 기록됐다. 다음 버튼과 떨어진 위쪽에 둬 젖은 손 오터치를 피한다.
+                */}
+                <Link
+                  href={nextHref}
+                  className={styles.heroSkip}
+                  onClick={markStep(true)}
+                >
+                  건너뛰기
+                </Link>
               </p>
               {/*
                 using_product 는 제품 id 가 아니라 **이름 문자열**이다. 저장된 제품과

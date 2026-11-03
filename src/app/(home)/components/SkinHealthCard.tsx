@@ -75,6 +75,8 @@ export function SkinHealthCard() {
   );
 
   // 루틴이 아직 없어 예정 단계가 0 — 달성률을 계산할 수 없다.
+  // CTA 는 두지 않는다 — 제품이 없으면 '루틴 만들기'가 "먼저 제품을 등록"으로 튕겼다(4라운드 m6).
+  // 같은 홈의 다음 단계 카드(NextStepCard)가 제품 유무에 맞는 행동을 안내한다.
   if (percent === null) {
     return (
       <section className={`${card.card} ${styles.empty}`}>
@@ -85,10 +87,6 @@ export function SkinHealthCard() {
           <br />
           루틴을 만들면 달성률을 보여드려요.
         </p>
-        <Link className={styles.emptyCta} href="/routine/new">
-          <Icon name="add_circle" filled size="sm" />
-          루틴 만들기
-        </Link>
       </section>
     );
   }

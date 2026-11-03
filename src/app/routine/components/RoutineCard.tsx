@@ -38,6 +38,7 @@ function saveErrorText(error: unknown): string {
  *
  * @param editLocked 다른 카드가 편집 중이다 — 편집 진입을 막는다(m7). 저장이 같은 조건의
  *   형제를 함께 보내므로, 두 카드를 동시에 편집하면 먼저 저장한 쪽이 뒤의 초안 기준을 바꾼다.
+ *   시작하기·완료·바로 시작도 막는다(r4 m29) — 누르면 다른 카드의 초안이 확인 없이 사라졌다.
  * @param onEditingChange 편집 진입·종료를 목록(RoutineList)에 알린다.
  */
 export function RoutineCard({
@@ -297,13 +298,20 @@ export function RoutineCard({
           </>
         ) : (
           <div className={styles.actions}>
-            <Link
-              href={`/routine/${routine.id}/1` as Route}
-              className={styles.start}
-            >
-              <Icon name="play_arrow" filled />
-              {done ? "다시 하기" : "시작하기"}
-            </Link>
+            {editLocked ? (
+              <button type="button" className={styles.start} disabled>
+                <Icon name="play_arrow" filled />
+                {done ? "다시 하기" : "시작하기"}
+              </button>
+            ) : (
+              <Link
+                href={`/routine/${routine.id}/1` as Route}
+                className={styles.start}
+              >
+                <Icon name="play_arrow" filled />
+                {done ? "다시 하기" : "시작하기"}
+              </Link>
+            )}
 
             {/* 이미 오늘 완료면 기록할 게 없다 — 버튼을 숨긴다. */}
             {!done && (
@@ -311,7 +319,7 @@ export function RoutineCard({
                 type="button"
                 className={styles.markDone}
                 onClick={markDone}
-                disabled={marking}
+                disabled={marking || editLocked}
               >
                 <Icon name="check" size="sm" />
                 {marking ? "기록 중…" : "완료"}
@@ -360,9 +368,9 @@ export function RoutineCard({
         버튼(summary) 안의 링크라 접근성 규칙 위반이고, 누를 때 카드 펼침과 엉킨다.
         details 바로 뒤라서 CSS 가 펼친 상태에서 숨긴다(아래 버튼 줄과 중복).
         편집 중엔 그리지 않는다 — 아래 버튼 줄처럼 시작 경로를 막는다(접어서 누르면
-        저장본으로 실행되고 초안이 말없이 사라졌다).
+        저장본으로 실행되고 초안이 말없이 사라졌다). 다른 카드가 편집 중일 때도 같다(r4 m29).
       */}
-      {!draft && (
+      {!draft && !editLocked && (
         <Link
           href={`/routine/${routine.id}/1` as Route}
           className={styles.quickStart}

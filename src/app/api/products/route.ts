@@ -262,13 +262,19 @@ export async function POST(request: Request) {
          */
         const changed =
           JSON.stringify(ingredients) !== JSON.stringify(current.ingredients);
+        // '미분류'는 "모름"이다 — 공식몰 경로는 카테고리를 몰라 늘 이 값이라 기존 값을 지웠다(4라운드 m14).
         await conn.execute(
           `UPDATE products
-              SET category = ?, ingredients = ?, ingredient_source = ?${
+              SET category = COALESCE(?, category), ingredients = ?, ingredient_source = ?${
                 changed ? ", warnings = NULL" : ""
               }
             WHERE id = ?`,
-          [category, JSON.stringify(ingredients), source, id],
+          [
+            category === "미분류" ? null : category,
+            JSON.stringify(ingredients),
+            source,
+            id,
+          ],
         );
       }
 
@@ -338,72 +344,6 @@ export async function POST(request: Request) {
     return Response.json(created ?? { id: productId }, { status: 201 });
   } catch (error) {
     return dbErrorResponse("api/products POST", error);
-  }
-}
-
-/**
- * 주의사항(`warnings`)을 나중에 채운다. 등록 시점에 만들면 약 34초가 걸려 UX 를 망친다.
- * ⚠️ 공유 카탈로그를 고치는 것이라 **다른 사용자에게도 반영된다** — 주의사항은 제품 고유
- *    속성이라 의도된 동작이다.
- */
-export async function PATCH(request: Request) {
-  const body = await readJsonObject(request);
-  if (!body) {
-    return Response.json(
-      { message: "JSON 객체 본문이 아닙니다." },
-      { status: 400 },
-    );
-  }
-
-  const id = typeof body.id === "string" ? body.id : "";
-  const warnings = textArray(body.warnings, { maxItems: 20, maxLength: 500 });
-  if (!id || !warnings) {
-    return Response.json(
-      { message: "id 와 warnings 배열이 필요합니다." },
-      { status: 400 },
-    );
-  }
-
-  try {
-    /*
-     * **내 선반에 있는 제품만** 고칠 수 있다. 공유 카탈로그라 소유자 개념이 없지만,
-     * 이것만으로도 임의 id 를 넣어 남의 주의사항을 지우는 경로는 막힌다.
-     * ⚠️ 완전한 방어는 아니다 — 같은 제품을 자기 선반에 담으면 다시 고칠 수 있다.
-     *    카탈로그를 공유하기로 한 결정의 필연적 결과이고, 되돌리려면 그 결정을 바꿔야 한다.
-     *
-     * ⛔ 빈 배열은 **첫 기록(NULL)일 때만** 받는다(2026-08-20).
-     *    - 예전에는 전면 거부했는데, 그러면 AI 가 "주의 없음"(빈 배열)을 준 제품이
-     *      영영 미기록으로 남아 **홈 재방문마다 30초짜리 생성이 재시도**됐다(refuter 검증).
-     *    - '[]' 를 저장하면 "확인했고 주의 없음"이 기록돼 재시도가 1회로 끝난다.
-     *      화면(rows.ts)은 NULL(아직 안 만듦)과 [](주의 없음)를 이미 구분한다.
-     *    - 기존 주의사항을 빈 배열로 **덮는** 것은 계속 거부한다 — 데이터 손실 가드.
-     */
-    const changed = await execute(
-      warnings.length === 0
-        ? `UPDATE products p
-             JOIN shelf_items s ON s.product_id = p.id AND s.user_id = ?
-              SET p.warnings = ?
-            WHERE p.id = ? AND p.warnings IS NULL`
-        : `UPDATE products p
-             JOIN shelf_items s ON s.product_id = p.id AND s.user_id = ?
-              SET p.warnings = ?
-            WHERE p.id = ?`,
-      [await currentUserId(), JSON.stringify(warnings), id],
-    );
-    if (changed === 0) {
-      return Response.json(
-        {
-          message:
-            warnings.length === 0
-              ? "빈 warnings 로는 기존 주의사항을 덮을 수 없습니다."
-              : "내 선반에서 해당 제품을 찾을 수 없습니다.",
-        },
-        { status: warnings.length === 0 ? 409 : 404 },
-      );
-    }
-    return Response.json({ ok: true });
-  } catch (error) {
-    return dbErrorResponse("api/products PATCH", error);
   }
 }
 
