@@ -13,7 +13,7 @@
 import { dbErrorResponse, selectRows } from "@/lib/db/pool";
 import { toProduct } from "@/lib/db/rows";
 import { shrinkLargeImages } from "@/lib/images";
-import { ingredientAliases } from "@/lib/ingredientNames";
+import { containsIngredient, ingredientAliases } from "@/lib/ingredientNames";
 
 export const runtime = "nodejs";
 
@@ -25,9 +25,11 @@ const MAX_NAME_LENGTH = 60;
 /*
  * `JSON_SEARCH` 로 **배열 원소 안에서** 찾는다. 단순 LIKE 로 컬럼 전체를 훑으면
  * 다른 필드(제품명 등)에 우연히 들어간 글자까지 걸린다.
- * 부분 일치를 쓰는 이유는 표기가 흔들리기 때문이다 — "판테놀" / "디판테놀" / "판테놀(비타민B5)".
+ * **앞부분 일치**(`CONCAT(?, '%')`)인 이유는 표기가 흔들리기 때문이다 — "세라마이드엔피", "판테놀(비타민B5)".
  * 지식 매칭(`sameIngredient`, 정확 일치만)과 다르게 둔 것은 의도다 — 여기 결과는 안전 정보가 아니라
  * 제품 목록이고, "세라마이드가 든 제품"에 세라마이드엔피 제품이 나오는 것은 맞는 답이다.
+ * ⛔ 양쪽 `%` 로 열지 않는다(4라운드 M2) — '우레아'에 방부제 '이미다졸리디닐우레아'만 든 제품이 나왔다.
+ *    SQL 은 선필터이고, 응답 규칙은 아래에서 다시 거르는 `containsIngredient`(테스트 핀)다.
  *
  * ⭐ 별칭 확장(M9): 지식 조회(`/api/knowledge/ingredient`)는 `sameIngredient` 로 복합 표기
  * ("비타민씨(아스코빅애씨드)")를 잇는데, 이 라우트만 원시 검색이면 사전 → "이 성분이 든 내 제품"
@@ -48,7 +50,7 @@ const byIngredientSql = (aliasCount: number) => `
    WHERE ${Array.from(
      { length: aliasCount },
      () =>
-       `JSON_SEARCH(p.ingredients, 'one', CONCAT('%', ?, '%'), '\\\\') IS NOT NULL`,
+       `JSON_SEARCH(p.ingredients, 'one', CONCAT(?, '%'), '\\\\') IS NOT NULL`,
    ).join("\n      OR ")}
    GROUP BY p.id, p.name, p.brand, p.category, p.ingredients, p.warnings,
             p.image, p.updated_at
@@ -81,7 +83,15 @@ export async function GET(request: Request) {
      *    그런 제품이 세상에 없다는 뜻이 아니다. 화면은 그 차이를 말해 줘야 한다
      *    ("아직 담긴 제품이 없어요 — 스캔에서 찾아 담아 보세요").
      */
-    const products = rows.map(toProduct).filter((p) => p !== null);
+    /*
+     * SQL(앞부분 일치)과 같은 규칙이라 지금은 no-op 이다. 둘이 어긋나면 SQL 이 더 넓게 고른 행만
+     * 빠지고 LIMIT 이 재필터보다 먼저라 목록이 12개보다 짧아질 수 있다 — 빈 목록이 아니라 짧은 목록.
+     * 대소문자: JSON 컬럼은 utf8mb4_bin 이고 JSON_SEARCH 는 그 콜레이션으로 비교한다 → 양쪽 다 구분한다.
+     */
+    const products = rows
+      .map(toProduct)
+      .filter((p) => p !== null)
+      .filter((p) => containsIngredient(p.ingredients, name));
     shrinkLargeImages(products);
     return Response.json(products);
   } catch (error) {
