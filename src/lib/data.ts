@@ -129,7 +129,11 @@ export type Resource<T> = {
 function serverMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const body = error.body as { message?: unknown } | null;
-  return typeof body?.message === "string" ? body.message : null;
+  if (typeof body?.message === "string") return body.message;
+  // 앞단 nginx 의 502·504 처럼 JSON 이 아닌 5xx 가 "인터넷 연결을 확인해 주세요"로 뭉개졌다(4라운드 m38).
+  return error.status >= 500
+    ? "서버에 잠시 문제가 있어요. 잠시 후 다시 시도해 주세요."
+    : null;
 }
 
 /**
@@ -305,18 +309,22 @@ let roleRequestsSettled: Promise<unknown> = Promise.resolve();
  * 가드에 걸려 429 다 — 사용자는 정상적인 일을 했는데 에러 화면을 보게 된다(코드 리뷰 확정 2026-11-02).
  * 그래서 429 면 앞 요청들이 끝나길 기다렸다가 **한 번만** 다시 부른다. 그동안 화면은 대기로 남는다.
  * 캐시가 있는 칩은 서버가 가드보다 먼저 답하므로 이 대기를 타지 않는다.
+ * ⭐ 체인에는 **재요청까지** 넣는다(4라운드 m19) — 첫 요청만 넣으면 B·C 가 같은 A 를 기다렸다가
+ *    동시에 재요청해 C 가 다시 429 였다.
  */
-async function fetchIngredientRoleInTurn(name: string) {
+function fetchIngredientRoleInTurn(name: string) {
   const previous = roleRequestsSettled;
-  const request = fetchIngredientRole({ name });
-  roleRequestsSettled = Promise.allSettled([previous, request]);
-  try {
-    return await request;
-  } catch (error: unknown) {
-    if (!(error instanceof ApiError) || error.status !== 429) throw error;
-    await previous;
-    return fetchIngredientRole({ name });
-  }
+  const attempt = (async () => {
+    try {
+      return await fetchIngredientRole({ name });
+    } catch (error: unknown) {
+      if (!(error instanceof ApiError) || error.status !== 429) throw error;
+      await previous;
+      return fetchIngredientRole({ name });
+    }
+  })();
+  roleRequestsSettled = Promise.allSettled([previous, attempt]);
+  return attempt;
 }
 
 /**
