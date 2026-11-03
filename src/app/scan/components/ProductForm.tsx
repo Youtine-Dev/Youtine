@@ -13,6 +13,8 @@ import { ProductSearchModal } from "./ProductSearchModal";
 export type ProductPrefill = {
   productName: string;
   productCompany: string;
+  /** 제품 모달의 '성분표 촬영하기'(m21)에서 왔다 — 성분표 카메라를 바로 연다. */
+  openLabelCamera?: boolean;
 };
 
 /**
@@ -71,10 +73,25 @@ export function ProductForm({
   /** 성분 추출용. 있으면 후보 검색을 건너뛴다. */
   const [labelFile, setLabelFile] = useState<File | null>(null);
   /** 어떤 촬영을 여는지. `null` 이면 닫혀 있다. */
-  const [cameraMode, setCameraMode] = useState<CaptureMode | null>(null);
+  const [cameraMode, setCameraMode] = useState<CaptureMode | null>(
+    prefill?.openLabelCamera ? "label" : null,
+  );
 
   const productInputRef = useRef<HTMLInputElement>(null);
   const labelInputRef = useRef<HTMLInputElement>(null);
+  const labelCameraRef = useRef<HTMLButtonElement>(null);
+
+  /*
+   * 프리필로 저절로 열린 카메라는 트리거가 없어 닫으면 포커스가 body 로 빠진다(m21).
+   * 성분표 '촬영' 버튼으로 옮긴다. 부모 effect 는 언마운트된 CameraCapture 의 정리(useModalFocus
+   * 트리거 복귀)가 끝난 뒤에 돌아(React 는 passive 정리를 먼저 모두 실행) 덮어쓰이지 않는다.
+   */
+  const autoCameraRef = useRef(Boolean(prefill?.openLabelCamera));
+  useEffect(() => {
+    if (cameraMode !== null || !autoCameraRef.current) return;
+    autoCameraRef.current = false;
+    labelCameraRef.current?.focus();
+  }, [cameraMode]);
 
   const {
     phase,
@@ -82,6 +99,8 @@ export function ProductForm({
     candidates,
     found,
     saved,
+    existing,
+    savedOver,
     shelfCount,
     extractStartedAt,
     search,
@@ -153,6 +172,8 @@ export function ProductForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // 직전 검색의 경과 초(예: 92초·'거의 다 됐어요')가 새 검색 첫 1초에 보이지 않게(m13).
+    setElapsed(0);
     await search({
       productName,
       capacity,
@@ -198,7 +219,11 @@ export function ProductForm({
           candidates={candidates}
           result={found}
           saved={saved}
+          existing={existing}
+          savedOver={savedOver}
           shelfCount={shelfCount}
+          // 폼 입력은 모달이 떠 있는 동안 잠겨 있어 이 값이 곧 이번 등록의 경로다(m16).
+          viaLabel={Boolean(labelFile)}
           extractStartedAt={extractStartedAt}
           error={error}
           onSelect={selectCandidate}
@@ -341,6 +366,7 @@ export function ProductForm({
               disabled={busy}
             />
             <button
+              ref={labelCameraRef}
               type="button"
               className={styles.camera}
               onClick={() => setCameraMode("label")}

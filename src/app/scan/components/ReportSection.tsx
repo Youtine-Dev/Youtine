@@ -18,6 +18,7 @@ import type { Product } from "@/types/skincare";
 
 import card from "../../(home)/components/card.module.css";
 import styles from "./ReportSection.module.css";
+import { labelCaptureHref } from "./ScanTabs";
 
 /** 2개 이상 제품에 공통으로 들어간 성분 — 상위 3개만 인사이트로 보여준다. */
 function sharedIngredients(
@@ -191,6 +192,10 @@ export function ReportSection({
   ).size;
   const shared = sharedIngredients(products);
   const flagged = warningsByProduct(products);
+  // 성분이 없으면 주의 성분을 판정할 수 없다 — '없음'(초록 체크)으로 읽히지 않게 따로 센다(m3).
+  const missing = products.filter(
+    (product) => product.ingredients.length === 0,
+  );
 
   const selectTab = (id: SubTab) => setSubTab(id);
 
@@ -244,6 +249,16 @@ export function ReportSection({
         </div>
       );
     }
+    // 보유 성분 0종이면 분석할 게 없다(m20) — 빈 캐시가 있어도 '확인된 조합 없음'으로 보이면 안 된다.
+    if (uniqueIngredientCount === 0) {
+      return (
+        <p className={styles.groupEmpty}>
+          등록한 제품에 성분 정보가 없어요.
+          <br />
+          성분표를 촬영하면 분석할 수 있어요.
+        </p>
+      );
+    }
     if (report.error) {
       return (
         <DataState
@@ -285,7 +300,7 @@ export function ReportSection({
         <span className={styles.badge}>
           <Icon name="science" />
         </span>
-        <div>
+        <div className={styles.headerText}>
           <h2 className={card.cardTitle}>AI 분석 리포트</h2>
           <p className={`${card.label} ${styles.subtitle}`}>
             {products.length === 0
@@ -303,7 +318,8 @@ export function ReportSection({
             type="button"
             className={styles.analyze}
             onClick={handleGenerate}
-            disabled={generating}
+            // 성분 0종은 AI 가 볼 게 없다(m20) — 이유는 분석 탭·종합의 안내가 말한다.
+            disabled={generating || uniqueIngredientCount === 0}
           >
             {generating ? (
               <>
@@ -384,15 +400,17 @@ export function ReportSection({
               )}
 
               {flagged.length === 0 ? (
-                <p className={styles.safe}>
-                  <Icon
-                    name="check_circle"
-                    size="sm"
-                    filled
-                    className={styles.safeIcon}
-                  />
-                  등록한 제품에서 확인된 주의 성분이 없어요.
-                </p>
+                missing.length === 0 && (
+                  <p className={styles.safe}>
+                    <Icon
+                      name="check_circle"
+                      size="sm"
+                      filled
+                      className={styles.safeIcon}
+                    />
+                    등록한 제품에서 확인된 주의 성분이 없어요.
+                  </p>
+                )
               ) : (
                 <div className={styles.block}>
                   <h3 className={`${styles.blockTitle} ${styles.alertTitle}`}>
@@ -425,6 +443,34 @@ export function ReportSection({
                     className={`${card.label} ${styles.alertCta}`}
                   >
                     대체 제품 찾기
+                  </Link>
+                </div>
+              )}
+
+              {/* 홈 성분 알림과 같은 문구. 한 개면 그 제품으로 폼을 채워 카메라를 연다(m21 과 같은 길) —
+                  손으로 이름을 다시 치면 글자가 달라 별도 행이 된다. */}
+              {missing.length > 0 && (
+                <div>
+                  <p className={styles.safe}>
+                    <Icon
+                      name="info"
+                      size="sm"
+                      filled
+                      className={styles.safeIcon}
+                    />
+                    성분 정보가 없는 제품 {missing.length}개는 확인하지
+                    못했어요. 성분표를 촬영하면 주의 성분을 알려드려요.
+                  </p>
+                  <Link
+                    href={
+                      missing.length === 1
+                        ? labelCaptureHref(missing[0])
+                        : "/scan?tab=add"
+                    }
+                    className={`${card.label} ${styles.photoCta}`}
+                  >
+                    <Icon name="photo_camera" size="sm" filled />
+                    성분표 촬영하기
                   </Link>
                 </div>
               )}

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { ProductCandidate } from "@/api/ai";
 import { Icon } from "@/components/Icon";
@@ -32,7 +32,10 @@ export function ProductSearchModal({
   candidates,
   result,
   saved,
+  existing,
+  savedOver,
   shelfCount,
+  viaLabel,
   extractStartedAt,
   error,
   onSelect,
@@ -48,7 +51,13 @@ export function ProductSearchModal({
   candidates: ProductCandidate[];
   result: SearchResult | null;
   saved: Product | null;
+  /** 확인 중인 결과가 이미 내 선반에 있으면 그 항목(m15). */
+  existing: Product | undefined;
+  /** 저장 직전 선반에 있던 같은 제품 — 완료 화면 문구가 갈린다(m15). */
+  savedOver: Product | undefined;
   shelfCount: number;
+  /** 성분표 사진으로 읽는 경로인지 — 검색을 안 했으니 제목이 '검색 결과'면 틀린 말이다(m16). */
+  viaLabel: boolean;
   /** 성분 추출 시작 시각(ms). 훅이 들고 있어 모달이 다시 떠도 경과 초가 이어진다(m28). */
   extractStartedAt: number;
   error: string | null;
@@ -66,6 +75,7 @@ export function ProductSearchModal({
 }) {
   const busy = phase === "extracting" || phase === "saving";
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   // 완료 후 다음 행동 문구 — 루틴이 없는데 "다시 짜기"라고 하면 틀린 말이다(m33).
   const hasRoutines = useRoutines().value.length > 0;
 
@@ -89,7 +99,7 @@ export function ProductSearchModal({
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
-      aria-label={phase === "choosing" ? "제품 선택" : "검색 결과"}
+      aria-labelledby={titleId}
     >
       <div className={styles.sheet}>
         <div className={styles.bar}>
@@ -107,12 +117,14 @@ export function ProductSearchModal({
             <span className={styles.barSpacer} />
           )}
 
-          <p className={styles.title}>
+          <p id={titleId} className={styles.title}>
             {phase === "choosing"
               ? "어떤 제품인가요?"
               : phase === "done"
                 ? "등록 완료"
-                : "검색 결과"}
+                : viaLabel
+                  ? "성분 읽기 결과"
+                  : "검색 결과"}
           </p>
 
           <button
@@ -134,6 +146,7 @@ export function ProductSearchModal({
               typedName={typedName}
               onUseTypedName={onUseTypedName}
               onRetakeLabel={onRetakeLabel}
+              searchFailed={Boolean(error)}
             />
           )}
 
@@ -150,7 +163,11 @@ export function ProductSearchModal({
           )}
 
           {phase === "done" && saved && (
-            <SavedView product={saved} shelfCount={shelfCount} />
+            <SavedView
+              product={saved}
+              before={savedOver}
+              shelfCount={shelfCount}
+            />
           )}
         </div>
 
@@ -159,6 +176,18 @@ export function ProductSearchModal({
             <p className={styles.error} role="alert">
               <Icon name="error" size="sm" />
               {error}
+            </p>
+          )}
+
+          {/* 이미 담긴 제품을 다시 등록해도 개수는 그대로다 — 누르기 전에 알린다(m15). */}
+          {phase === "found" && existing && (
+            <p className={styles.shelfNote}>
+              <Icon
+                name="inventory_2"
+                size="sm"
+                className={styles.shelfNoteIcon}
+              />
+              이미 내 선반에 있는 제품이에요. 등록해도 개수는 늘지 않아요.
             </p>
           )}
 
@@ -216,12 +245,15 @@ function CandidateList({
   typedName,
   onUseTypedName,
   onRetakeLabel,
+  searchFailed,
 }: {
   candidates: ProductCandidate[];
   onSelect: (candidate: ProductCandidate) => void;
   typedName: string;
   onUseTypedName: () => void;
   onRetakeLabel: () => void;
+  /** 검색 자체가 실패했다 — 아래 오류가 사유를 말하니 "결과가 없어요"라고 하지 않는다(m8). */
+  searchFailed: boolean;
 }) {
   // 깨진 썸네일 주소 — 브라우저 기본 깨진 이미지 대신 아이콘으로 폴백한다(m34, ProductCard 와 같은 방식).
   const [brokenSrcs, setBrokenSrcs] = useState<string[]>([]);
@@ -253,8 +285,13 @@ function CandidateList({
     return (
       <>
         <p className={styles.empty}>
-          검색 결과가 없어요.
-          <br />더 깊게 찾아보거나, 성분표를 찍어 직접 읽을 수 있어요.
+          {!searchFailed && (
+            <>
+              검색 결과가 없어요.
+              <br />
+            </>
+          )}
+          더 깊게 찾아보거나, 성분표를 찍어 직접 읽을 수 있어요.
         </p>
         {typedOption}
         {/* 안내만 하고 버튼이 없으면 막다른 길이다(m29) — 성분 0개 화면과 같은 촬영 흐름. */}
@@ -360,20 +397,36 @@ function Extracting({ startedAt }: { startedAt: number }) {
 /** 등록 완료. 폼 아래 인라인이 아니라 모달로 보여 준다 — 방금 한 행동의 결과가 눈에 띄어야 한다. */
 function SavedView({
   product,
+  before,
   shelfCount,
 }: {
   product: Product;
+  /** 저장 전부터 선반에 있던 같은 제품. 있으면 "담았어요·총 N개"(변화 없음) 대신 바뀐 것을 말한다(m15). */
+  before: Product | undefined;
   shelfCount: number;
 }) {
+  // 서버는 출처 등급이 높을 때만 성분을 바꾼다 — 실제로 바뀌었는지는 저장 결과로 판정한다.
+  const replaced =
+    before !== undefined &&
+    JSON.stringify(before.ingredients) !== JSON.stringify(product.ingredients);
+
   return (
     <div className={styles.saved}>
       <Icon name="check_circle" filled className={styles.savedIcon} />
-      <p className={styles.savedTitle}>선반에 담았어요</p>
+      <p className={styles.savedTitle}>
+        {before ? "이미 선반에 있던 제품이에요" : "선반에 담았어요"}
+      </p>
       <p className={styles.savedName}>
         {product.productName}
         <span className={styles.chip}>{product.category}</span>
       </p>
-      <p className={styles.savedCount}>내 선반에 총 {shelfCount}개</p>
+      <p className={styles.savedCount}>
+        {!before
+          ? `내 선반에 총 ${shelfCount}개`
+          : replaced
+            ? `성분 정보를 새로 읽은 ${product.ingredients.length}개로 바꿨어요`
+            : "선반은 그대로예요"}
+      </p>
     </div>
   );
 }
@@ -386,6 +439,7 @@ function ResultView({
   onRetakeLabel?: () => void;
 }) {
   const image = result.thumbnail || result.imageUrl;
+  const photo = result.ingredientSource === "photo";
   // 깨진 이미지면 카테고리 아이콘으로(m34). src 를 기억해 다른 이미지로 바뀌면 다시 시도한다.
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
 
@@ -443,10 +497,13 @@ function ResultView({
       */}
       {result.ingredients.length === 0 ? (
         <>
+          {/* 사진으로 읽었는데 0개면 "사진을 올리라"는 안내는 방금 한 일이다(m9) — 다시 찍는 요령을 준다. */}
           <p className={styles.empty}>
-            성분 정보를 찾지 못했어요.
+            {photo ? "성분표를 읽지 못했어요." : "성분 정보를 찾지 못했어요."}
             <br />
-            성분표 사진을 올리면 정확히 읽을 수 있습니다.
+            {photo
+              ? "성분표가 박스에 꽉 차게, 밝은 곳에서 가까이 다시 찍어 주세요."
+              : "성분표 사진을 올리면 정확히 읽을 수 있습니다."}
           </p>
           {/* 문구로만 안내하면 막다른 길이다 — 바로 촬영으로 이어지는 버튼을 준다. */}
           {onRetakeLabel && (
@@ -456,7 +513,7 @@ function ResultView({
               onClick={onRetakeLabel}
             >
               <Icon name="photo_camera" filled size="sm" />
-              성분표 촬영하기
+              {photo ? "다시 촬영하기" : "성분표 촬영하기"}
             </button>
           )}
         </>

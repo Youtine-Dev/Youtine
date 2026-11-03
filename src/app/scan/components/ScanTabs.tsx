@@ -37,6 +37,20 @@ export function toScanTab(value: string | string[] | undefined): ScanTab {
   return SCAN_TABS.find((tab) => tab.id === value)?.id ?? "add";
 }
 
+/**
+ * 성분 없는 제품의 '성분표 촬영하기'(4라운드 m21) — 등록 폼을 이름·브랜드로 채우고 성분표 카메라를 연다.
+ * 서버 UPSERT 키가 (이름, 브랜드)라 글자가 같아야 그 행의 성분이 채워진다 — 손으로 다시 치면 별도 행이 된다.
+ * URL 로 넘기는 이유: 홈·성분 상세처럼 등록 폼 밖(다른 페이지)에서도 누른다. 받는 쪽은 `ScanWorkspace`.
+ */
+export function labelCaptureHref(product: {
+  productName: string;
+  productCompany?: string;
+}) {
+  const params = new URLSearchParams({ tab: "add", name: product.productName });
+  if (product.productCompany) params.set("brand", product.productCompany);
+  return `/scan?${params.toString()}` as const;
+}
+
 export function ScanTabs({ active }: { active: ScanTab }) {
   return (
     <nav className={styles.bar} aria-label="스캔 하위 메뉴">
