@@ -65,10 +65,10 @@
 
 ## 🔴 Major (2) — 공유 데이터 무결성 · 성분 정보 정확성
 
-- [x] **M1. `PATCH /api/products` 가 열려 있어 공유 카탈로그 주의사항을 누구나 임의 문장으로 영구 덮어쓴다** — `src/app/api/products/route.ts:349`
+- [x] **M1. `PATCH /api/products` 가 열려 있어 공유 카탈로그 주의사항을 누구나 임의 문장으로 영구 덮어쓴다** — `src/app/api/products/route.ts:349` — 커밋 `69f607c`
       클라이언트 호출처가 0건(주석만 `src/api/products.ts:60`)인데 export 돼 있다. 방어는 "내 선반에 있는 제품만"인데 아무 카탈로그 제품이나 인기 탭에서 담을 수 있어 사실상 무방비이고(주석도 "완전한 방어는 아니다"), 빈 배열이 아니면 기존 주의사항을 덮는다. 실측: 쿠키 A 로 제품을 담고 `PATCH {id, warnings:["임의 문장"]}` → 200, 다른 쿠키 B 의 같은 제품 모달·홈 성분 알림에 그 문장이 그대로 보인다. 주의사항은 안전 정보라 실해가 크다. (세션 직접 확인: 함수 본문·호출처 grep)
       → 수정: `PATCH` export 삭제(주석 344–348 포함). 주의사항은 서버 큐(`warningsQueue`)가 `warnings IS NULL` 일 때만 쓰므로 잃는 기능이 없다. `warningsQueue.ts`·`src/api/products.ts` 의 "PATCH 와 같은 규칙" 주석 정리.
-- [x] **M2. "이 성분이 든 제품"이 부분 문자열 매칭이라 다른 성분이 든 제품이 섞인다** — `src/app/api/products/by-ingredient/route.ts:51`
+- [x] **M2. "이 성분이 든 제품"이 부분 문자열 매칭이라 다른 성분이 든 제품이 섞인다** — `src/app/api/products/by-ingredient/route.ts:51` — 커밋 `468dce4`
       `JSON_SEARCH(…, CONCAT('%', ?, '%'))` 라 '우레아'(보습) 검색에 방부제 '이미다졸리디닐우레아'만 든 제품이 "우레아가 든 제품"으로 나온다. 성분 상세 모달(사전·리포트·역할 지식)의 '이 성분이 든 제품'과 리포트 '이런 성분을 더하면 좋아요' 펼침에 쓰인다 — 사용자가 그 성분이 없는 제품을 고를 수 있다. 주석은 표기 흔들림('세라마이드엔피') 때문에 부분 일치를 골랐다고 하지만 **뒤쪽 일치**까지 열린 것은 의도 밖이다. (세션 직접 확인)
       → 수정: Q1 — 추천 A(앞부분 일치). `ingredientNames.test.ts` 옆에 매칭 케이스 핀은 SQL 이라 라우트 단위로 어렵다 → 앞부분 일치 판정을 순수 함수로 빼면 테스트 가능.
 
@@ -170,7 +170,7 @@
 ## 진행 상태
 
 - [x] 리뷰 실행 + 화면 실측 + 적대 검증 + major 직접 재확인 (2026-11-02). 워크플로 1회(에이전트 65, 반박 기본 스탠스).
-- [x] 수정 1차 — 완료 2026-11-02. 사용자 결정(2026-11-02): "전부 추천안으로 진행해줘" → Q1–Q4 전부 A. **44건 전부 반영**(M1·M2 + m1–m42). 파일이 겹치지 않는 4그룹 병렬(서버·데이터 / 루틴·지표 / 스캔 / 홈·셸·접근성) + m42 는 세션이 직접. Vitest 핀 추가: `achievement.test.ts`(m1 4건)·`ingredientNames.test.ts`(M2·m35)·`proxy.test.ts`(m39)·`useProductRegister.test.ts`(m15)·`useModalFocus.test.tsx`(m4). `npm run check`(132 tests)·`npm run build` 통과. 미커밋.
+- [x] 수정 1차 — 완료 2026-11-02. 사용자 결정(2026-11-02): "전부 추천안으로 진행해줘" → Q1–Q4 전부 A. **44건 전부 반영**(M1·M2 + m1–m42). 파일이 겹치지 않는 4그룹 병렬(서버·데이터 / 루틴·지표 / 스캔 / 홈·셸·접근성) + m42 는 세션이 직접. Vitest 핀 추가: `achievement.test.ts`(m1 4건)·`ingredientNames.test.ts`(M2·m35)·`proxy.test.ts`(m39)·`useProductRegister.test.ts`(m15)·`useModalFocus.test.tsx`(m4). `npm run check`(132 tests)·`npm run build` 통과. 1·2차 수정은 영역별 분할 커밋으로 함께 들어갔다(아래).
 - [x] 수정 검증 — 완료 2026-11-02. QA 프로덕션 빌드 실측 3갈래(루틴 10/10 · 스캔 8/8 · 홈·셸 8 통과, 2 미측정 — m37 은 AI 호출 필요, m24 콜드 캐시는 시뮬레이션만) + 수정 diff 회귀 리뷰(확정 5 · 반박 0, 전부 minor).
 - [x] 수정 2차(검증 후속 8건) — 완료 2026-11-03. 그룹 4 병렬(1회 중단 — 스캔 그룹은 수정·검증까지 끝나고 보고 직전에 끊겨 세션이 diff 를 직접 대조).
   - **M2** — 라우트가 응답을 `containsIngredient` 로 한 번 더 거른다(SQL 은 선필터, 테스트가 실제 응답 규칙을 핀). 대소문자: JSON 컬럼은 `utf8mb4_bin` 이라 `JSON_SEARCH` 도 구분한다 — QA DB 실측(`Panthenol%` 히트 / `panthenol%` 0)으로 JS `startsWith` 와 같은 규칙임을 확인. 성분 데이터가 한글이라 실해 없음.
@@ -179,7 +179,8 @@
   - **m36** — `.headingClamp` 를 `-webkit-inline-box` + `vertical-align: top`(짧은 고민이 늘 두 줄로 나뉘던 것).
   - **m24 부작용** — `.icon { width: 1em }`. 아이콘 폰트가 오기 전엔 리거처 이름 글자 폭으로 커져(탭 아이콘 56→261px 시뮬레이션) 탭·헤더가 넘칠 수 있었다.
   - **추가(실측 중 발견, 기존 결함)** — 내 고민 '수정' 버튼이 360–390px 에서 '수/정' 한 글자씩 두 줄(82.9×68px). 한글은 음절마다 줄바꿈 지점이라 flex 가 버튼을 줄였다 → `.ghost { flex-shrink: 0; white-space: nowrap }` — 재측정 85.6×44px, 105자 고민에서도 겹침·가로 스크롤 없음.
-  - `npm run check`(137 tests)·`npm run build` 통과. 미커밋.
+  - `npm run check`(137 tests)·`npm run build` 통과.
+  - 커밋(2026-11-03, 분할): `69f607c`(api — M1·m42·m14) · `468dce4`(ingredients — M2·m35) · `bccb056`(ai — m10·m19·m20·m38) · `90cc307`(proxy — m39) · `1a39d70`(routine — m1·m2·m13·m26–m34) · `00dae9a`(scan — m3·m8–m9·m11–m13·m15–m18·m20–m25) · `841fad0`(ui — 홈·셸·내 고민) · `4dbd58b`(이 문서).
 - [x] 2차 검증 — 완료 2026-11-03. QA 실측 3갈래 + 2차 diff 적대 리뷰 1.
   - 루틴: 전부 건너뜀 화면(제목·`skip_next` 회색·'약 N분' 없음·안내)·새로고침 유지(기록 버튼 0)·runs 불변·일부 건너뜀 회귀(기록 +1, `check_circle`)·다크 대비(제목 14.4:1, 아이콘 10.89:1) 전부 PASS.
   - 스캔: '성분표 촬영하기'(인기·선반·리포트 탭) → 이름·브랜드 프리필 + 카메라 자동 열림 → URL `/scan?tab=add` 로 정리, Esc·닫기 모두 포커스가 성분표 '촬영' 버튼, 뒤로가기는 이전 탭으로(재발동 없음), 새로고침은 빈 폼, 직접 연 카메라의 트리거 복귀 회귀 없음, 특수문자 이름 복원 PASS.
